@@ -9,39 +9,36 @@ static int nearly_equal(float a, float b, float tolerance) {
 }
 
 int main(void) {
-    const struct sprott_system *system = sprott_case_b();
+    assert(sprott_parameter_count(SPROTT_SYSTEM_B) == 0);
 
-    assert(system != NULL);
-    assert(system->parameter_count == 0);
+    float state[SPROTT_STATE_DIMENSION] = {2.0f, 3.0f, 5.0f};
+    float velocity[SPROTT_STATE_DIMENSION] = {0.0f, 0.0f, 0.0f};
+    sprott_derivative(SPROTT_SYSTEM_B, state, velocity);
 
-    struct sprott_state state = {2.0f, 3.0f, 5.0f};
-    struct sprott_state velocity = {0.0f, 0.0f, 0.0f};
-    system->derivative(&state, NULL, &velocity);
+    assert(nearly_equal(velocity[0], 15.0f, 1e-6f));
+    assert(nearly_equal(velocity[1], -1.0f, 1e-6f));
+    assert(nearly_equal(velocity[2], -5.0f, 1e-6f));
 
-    assert(nearly_equal(velocity.x, 15.0f, 1e-6f));
-    assert(nearly_equal(velocity.y, -1.0f, 1e-6f));
-    assert(nearly_equal(velocity.z, -5.0f, 1e-6f));
+    sprott_reset(SPROTT_SYSTEM_B, state);
+    assert(nearly_equal(state[0], 0.1f, 1e-6f));
+    assert(nearly_equal(state[1], 0.1f, 1e-6f));
+    assert(nearly_equal(state[2], 0.1f, 1e-6f));
 
-    system->reset(&state, NULL);
-    assert(nearly_equal(state.x, 0.1f, 1e-6f));
-    assert(nearly_equal(state.y, 0.1f, 1e-6f));
-    assert(nearly_equal(state.z, 0.1f, 1e-6f));
-
-    struct sprott_state a = state;
-    struct sprott_state b = state;
+    float a[SPROTT_STATE_DIMENSION] = {state[0], state[1], state[2]};
+    float b[SPROTT_STATE_DIMENSION] = {state[0], state[1], state[2]};
 
     for (size_t i = 0; i < 10000; ++i) {
-        sprott_rk4_step(system, &a, NULL, 0.01f);
-        sprott_rk4_step(system, &b, NULL, 0.01f);
+        sprott_rk4_step(SPROTT_SYSTEM_B, a, 0.01f);
+        sprott_rk4_step(SPROTT_SYSTEM_B, b, 0.01f);
 
-        assert(isfinite(a.x));
-        assert(isfinite(a.y));
-        assert(isfinite(a.z));
+        assert(isfinite(a[0]));
+        assert(isfinite(a[1]));
+        assert(isfinite(a[2]));
     }
 
-    assert(nearly_equal(a.x, b.x, 1e-6f));
-    assert(nearly_equal(a.y, b.y, 1e-6f));
-    assert(nearly_equal(a.z, b.z, 1e-6f));
+    assert(nearly_equal(a[0], b[0], 1e-6f));
+    assert(nearly_equal(a[1], b[1], 1e-6f));
+    assert(nearly_equal(a[2], b[2], 1e-6f));
 
     return 0;
 }
