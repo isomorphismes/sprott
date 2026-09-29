@@ -4,12 +4,33 @@ Interactive experiments based on J. C. Sprott's dynamical systems and on demonst
 
 This repository should keep a clean distinction between published mathematics, our own implementations, and third-party copyrighted code or media.
 
+## Current implementation
+
+The first executable seam is intentionally small:
+
+- a host-testable dynamical-system interface in `src/`;
+- an independent implementation of Sprott Case B;
+- fixed-step RK4 evolution;
+- a DEX-free Android `NativeActivity` shell;
+- a GLES trail renderer;
+- drag to rotate and tap to reset.
+
+The Android application follows the generic ownership boundary in
+`isomorphisms/android-NDK`: Android packaging/lifecycle mechanics remain
+generic precedent, while this repository owns the system, simulation,
+rendering, and interaction semantics.
+
+See `docs/sprott-b.md` and `android/README.md`.
+
 ## Primary sources
 
 ### J. C. Sprott
 
 - Strange Attractors: Creating Patterns in Chaos
   https://sprott.physics.wisc.edu/SA.HTM
+- Simple chaotic flows, including Cases A-S
+  https://sprott.physics.wisc.edu/simplest.htm
+- J. C. Sprott, "Some simple chaotic flows," Phys. Rev. E 50, R647-R650 (1994)
 - Sprott's software archive and redistribution notice
   https://sprott.physics.wisc.edu/SOFTWARE.HTM
 - Sprott's publications
