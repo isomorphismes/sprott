@@ -1,0 +1,1259 @@
+module SprottBasic
+
+import Data.Char
+import Data.List
+import SprottBasicTypes
+
+%default total
+%unbound_implicits off
+
+-- This module is an independent Idriç implementation of the behavior of
+-- J. C. Sprott's 1993 BASIC Strange Attractor Program 2.0.  Routine names in
+-- comments point back to the published program; the DOS device operations are
+-- represented as ProgramEffect values rather than silently discarded.
+
+-- --------------------------------------------------------------------------
+-- Small total helpers
+-- --------------------------------------------------------------------------
+
+public export
+at_or : a → Number → List a → a
+at_or fallback Z [] = fallback
+at_or _ Z (value :: _) = value
+at_or fallback (S index) [] = fallback
+at_or fallback (S index) (_ :: rest) = at_or fallback index rest
+
+public export
+replace_at : Number → a → List a → List a
+replace_at Z value [] = [value]
+replace_at Z value (_ :: rest) = value :: rest
+replace_at (S index) value [] = value :: replace_at index value []
+replace_at (S index) value (head :: rest) =
+  head :: replace_at index value rest
+
+public export
+sum_doubles : List Double → Double
+sum_doubles [] = 0.0
+sum_doubles (value :: rest) = value + sum_doubles rest
+
+public export
+point_coordinates : Point4 → List Double
+point_coordinates (MkPoint4 x y z w) = [x, y, z, w]
+
+public export
+coordinates_for_dimension : Number → Point4 → List Double
+coordinates_for_dimension dimension point =
+  take dimension (point_coordinates point)
+
+public export
+point_from_values : List Double → Point4
+point_from_values values =
+  MkPoint4
+    (at_or 0.0 0 values)
+    (at_or 0.0 1 values)
+    (at_or 0.0 2 values)
+    (at_or 0.0 3 values)
+
+public export
+point_add : Point4 → Point4 → Point4
+point_add
+  (MkPoint4 ax ay az aw)
+  (MkPoint4 bx by bz bw) =
+    MkPoint4 (ax + bx) (ay + by) (az + bz) (aw + bw)
+
+public export
+point_subtract : Point4 → Point4 → Point4
+point_subtract
+  (MkPoint4 ax ay az aw)
+  (MkPoint4 bx by bz bw) =
+    MkPoint4 (ax - bx) (ay - by) (az - bz) (aw - bw)
+
+public export
+point_scale : Double → Point4 → Point4
+point_scale scale (MkPoint4 x y z w) =
+  MkPoint4 (scale * x) (scale * y) (scale * z) (scale * w)
+
+public export
+point_abs_sum : Point4 → Double
+point_abs_sum (MkPoint4 x y z w) =
+  abs x + abs y + abs z + abs w
+
+public export
+point_distance_squared : Point4 → Point4 → Double
+point_distance_squared left right =
+  let MkPoint4 dx dy dz dw = point_subtract left right
+  in dx * dx + dy * dy + dz * dz + dw * dw
+
+safe_span : Double → Double
+safe_span span = if abs span < 0.000001 then 0.000001 else span
+
+number_to_double : Number → Double
+number_to_double value = cast value
+
+number_to_int : Number → Int
+number_to_int value = cast value
+
+int_to_number_nonnegative : Int → Number
+int_to_number_nonnegative value =
+  if value ≤ 0 then Z else fromInteger (cast value)
+
+-- --------------------------------------------------------------------------
+-- BASIC-compatible code format (2600, 4700)
+-- --------------------------------------------------------------------------
+
+special_number : SystemKind → Maybe Int
+special_number absolute_map = Just 2
+special_number boolean_map = Just 3
+special_number power_map = Just 4
+special_number sine_map = Just 5
+special_number kicked_map = Just 6
+special_number forced_oscillator = Just 7
+special_number _ = Nothing
+
+kind_from_special : Int → SystemKind
+kind_from_special 2 = absolute_map
+kind_from_special 3 = boolean_map
+kind_from_special 4 = power_map
+kind_from_special 5 = sine_map
+kind_from_special 6 = kicked_map
+kind_from_special _ = forced_oscillator
+
+public export
+special_coefficient_count : SystemKind → Number
+special_coefficient_count absolute_map = 10
+special_coefficient_count boolean_map = 14
+special_coefficient_count power_map = 14
+special_coefficient_count sine_map = 18
+special_coefficient_count kicked_map = 6
+special_coefficient_count forced_oscillator = 9
+special_coefficient_count _ = 0
+
+public export
+polynomial_coefficient_count : Number → Number → Number
+polynomial_coefficient_count dimension order =
+  dimension * monomials_per_component dimension order
+  where
+    rising : Number → Number → Number → Number
+    rising Z _ product = product
+    rising (S remaining) term product =
+      rising remaining (S term) (product * term)
+
+    divide_tail : Number → Number → Number
+    divide_tail Z value = value
+    divide_tail (S Z) value = value
+    divide_tail (S (S remaining)) value =
+      let divisor = S (S remaining)
+      in div value divisor
+
+    monomials_per_component : Number → Number → Number
+    monomials_per_component d o =
+      -- C(d + o, o), written without factorials.
+      choose_with_repetition d o
+
+    choose_with_repetition : Number → Number → Number
+    choose_with_repetition d o =
+      choose (d + o) o
+
+    choose : Number → Number → Number
+    choose n k = choose_loop k n 1 1
+      where
+        choose_loop : Number → Number → Number → Number → Number
+        choose_loop Z _ numerator denominator = div numerator denominator
+        choose_loop (S remaining) top numerator denominator =
+          let step = S remaining
+              factor = top - remaining
+          in choose_loop remaining top (numerator * factor) (denominator * step)
+
+public export
+coefficient_count : SystemKind → Number → Number → Number
+coefficient_count kind dimension order =
+  case special_number kind of
+    Just _ ⇒ special_coefficient_count kind
+    Nothing ⇒ polynomial_coefficient_count dimension order
+
+public export
+coefficient_from_char : Char → Double
+coefficient_from_char character =
+  cast (ord character - 77) / 10.0
+
+public export
+code_text : List Char → String
+code_text = pack
+
+public export
+decode_code : List Char → AttractorDefinition
+decode_code [] =
+  MkAttractorDefinition polynomial_map 2 2 [] []
+decode_code (header :: coefficient_chars) =
+  let header_value = ord header
+      raw_dimension = 1 + (div (header_value - 65) 4)
+      order_int = 2 + (mod (header_value - 65) 4)
+      coefficients = map coefficient_from_char coefficient_chars
+  in if raw_dimension > 6
+       then
+         let special = header_value - 87
+             kind = kind_from_special special
+             count = special_coefficient_count kind
+         in MkAttractorDefinition
+              kind
+              4
+              2
+              (take count coefficients)
+              (header :: coefficient_chars)
+       else if raw_dimension > 4
+         then
+           let dimension = int_to_number_nonnegative (raw_dimension - 2)
+               order = int_to_number_nonnegative order_int
+               count = polynomial_coefficient_count dimension order
+           in MkAttractorDefinition
+                polynomial_ode
+                dimension
+                order
+                (take count coefficients)
+                (header :: coefficient_chars)
+         else
+           let dimension = int_to_number_nonnegative raw_dimension
+               order = int_to_number_nonnegative order_int
+               count = polynomial_coefficient_count dimension order
+           in MkAttractorDefinition
+                polynomial_map
+                dimension
+                order
+                (take count coefficients)
+                (header :: coefficient_chars)
+
+header_char : SystemKind → Number → Number → Char
+header_char kind dimension order =
+  case special_number kind of
+    Just special ⇒ chr (87 + special)
+    Nothing ⇒
+      let ode_offset =
+            case kind of
+              polynomial_ode ⇒ 8
+              _ ⇒ 0
+          value =
+            59 +
+            4 * number_to_int dimension +
+            number_to_int order +
+            ode_offset
+      in chr value
+
+-- --------------------------------------------------------------------------
+-- Deterministic host RNG plus Sprott's 100-entry shuffle (2800)
+-- --------------------------------------------------------------------------
+
+public export
+initial_random : Integer → RandomState
+initial_random seed = MkRandomState seed [] 0.0 False
+
+next_raw_random : RandomState → (Double, RandomState)
+next_raw_random (MkRandomState seed table probe ready) =
+  let modulus : Integer
+      modulus = 4294967296
+      next_seed = mod (1664525 * seed + 1013904223) modulus
+      value = cast next_seed / 4294967296.0
+  in (value, MkRandomState next_seed table probe ready)
+
+fill_shuffle : Number → RandomState → (List Double, RandomState)
+fill_shuffle Z random = ([], random)
+fill_shuffle (S remaining) random =
+  let (value, next_random) = next_raw_random random
+      (rest, final_random) = fill_shuffle remaining next_random
+  in (value :: rest, final_random)
+
+ensure_shuffle : RandomState → RandomState
+ensure_shuffle random@(MkRandomState _ _ _ True) = random
+ensure_shuffle random@(MkRandomState seed _ probe False) =
+  let (values, filled) = fill_shuffle 100 random
+  in MkRandomState filled.seed values probe True
+
+public export
+shuffle_random : RandomState → (Double, RandomState)
+shuffle_random random =
+  let ready = ensure_shuffle random
+      raw_index = cast (floor (100.0 * ready.shuffle_probe))
+      index = int_to_number_nonnegative raw_index
+      selected = at_or 0.0 index ready.shuffle_values
+      (replacement, advanced) = next_raw_random ready
+      new_values = replace_at index replacement ready.shuffle_values
+      result =
+        MkRandomState
+          advanced.seed
+          new_values
+          selected
+          True
+  in (selected, result)
+
+random_order : Number → RandomState → (Number, RandomState)
+random_order maximum_order random =
+  let (value, next_random) = next_raw_random random
+      span = if maximum_order > 1 then maximum_order - 1 else 1
+      offset = cast (floor (number_to_double span * value))
+      order = 2 + int_to_number_nonnegative offset
+  in (order, next_random)
+
+build_code_characters : Number → RandomState → (List Char, RandomState)
+build_code_characters Z random = ([], random)
+build_code_characters (S remaining) random =
+  let (value, next_random) = shuffle_random random
+      code_value = 65 + cast (floor (25.0 * value))
+      (rest, final_random) = build_code_characters remaining next_random
+  in (chr code_value :: rest, final_random)
+
+public export
+generate_definition :
+  Options →
+  SystemKind →
+  Number →
+  RandomState →
+  (AttractorDefinition, RandomState)
+generate_definition options kind dimension random =
+  let (order, ordered_random) = random_order options.maximum_order random
+      count = coefficient_count kind dimension order
+      (characters, final_random) = build_code_characters count ordered_random
+      header = header_char kind dimension order
+      full_code = header :: characters
+      decoded = decode_code full_code
+  in (decoded, final_random)
+
+-- --------------------------------------------------------------------------
+-- Polynomial evaluation (1700)
+-- --------------------------------------------------------------------------
+
+degree_two : List Double → List Double
+degree_two [] = []
+degree_two values@(first :: rest) =
+  map (\value ⇒ first * value) values ++ degree_two rest
+
+degree_three : List Double → List Double
+degree_three [] = []
+degree_three values@(first :: rest) =
+  map (\value ⇒ first * value) (degree_two values) ++ degree_three rest
+
+degree_four : List Double → List Double
+degree_four [] = []
+degree_four values@(first :: rest) =
+  map (\value ⇒ first * value) (degree_three values) ++ degree_four rest
+
+degree_five : List Double → List Double
+degree_five [] = []
+degree_five values@(first :: rest) =
+  map (\value ⇒ first * value) (degree_four values) ++ degree_five rest
+
+public export
+monomials : Number → List Double → List Double
+monomials order values =
+  [1.0] ++
+  values ++
+  (if order ≥ 2 then degree_two values else []) ++
+  (if order ≥ 3 then degree_three values else []) ++
+  (if order ≥ 4 then degree_four values else []) ++
+  (if order ≥ 5 then degree_five values else [])
+
+sum_products : List Double → List Double → Double
+sum_products [] _ = 0.0
+sum_products _ [] = 0.0
+sum_products (coefficient :: coefficients) (term :: terms) =
+  coefficient * term + sum_products coefficients terms
+
+component_values :
+  Number →
+  Number →
+  List Double →
+  List Double →
+  List Double
+component_values Z _ _ _ = []
+component_values (S remaining) terms_per_component coefficients terms =
+  let component_coefficients = take terms_per_component coefficients
+      value = sum_products component_coefficients terms
+      rest = drop terms_per_component coefficients
+  in value :: component_values remaining terms_per_component rest terms
+
+public export
+polynomial_value : AttractorDefinition → Point4 → Point4
+polynomial_value definition point =
+  let values = coordinates_for_dimension definition.dimension point
+      terms = monomials definition.polynomial_order values
+      terms_per_component = length terms
+      raw =
+        component_values
+          definition.dimension
+          terms_per_component
+          definition.coefficients
+          terms
+  in point_from_values raw
+
+-- --------------------------------------------------------------------------
+-- Special functions (6200)
+-- --------------------------------------------------------------------------
+
+coef : Number → AttractorDefinition → Double
+coef index definition = at_or 0.0 index definition.coefficients
+
+cint : Double → Int
+cint value =
+  if value < 0.0
+    then cast (ceiling (value - 0.5))
+    else cast (floor (value + 0.5))
+
+normalize_word16 : Int → Int
+normalize_word16 value =
+  let reduced = mod value 65536
+  in if reduced < 0 then reduced + 65536 else reduced
+
+bit_combine : Bool → Number → Int → Int → Int → Int → Int
+bit_combine _ Z _ _ _ result = result
+bit_combine use_and (S remaining) left right power result =
+  let left_bit = mod left 2
+      right_bit = mod right 2
+      selected =
+        if use_and
+          then left_bit ≟ 1 && right_bit ≟ 1
+          else left_bit ≟ 1 || right_bit ≟ 1
+      next_result = if selected then result + power else result
+  in bit_combine
+       use_and
+       remaining
+       (div left 2)
+       (div right 2)
+       (power * 2)
+       next_result
+
+signed_word16 : Int → Int
+signed_word16 value =
+  let normalized = normalize_word16 value
+  in if normalized ≥ 32768 then normalized - 65536 else normalized
+
+word16_and : Int → Int → Int
+word16_and left right =
+  signed_word16
+    (bit_combine
+      True
+      16
+      (normalize_word16 left)
+      (normalize_word16 right)
+      1
+      0)
+
+word16_or : Int → Int → Int
+word16_or left right =
+  signed_word16
+    (bit_combine
+      False
+      16
+      (normalize_word16 left)
+      (normalize_word16 right)
+      1
+      0)
+
+special_time_coordinate : Number → Number → Double
+special_time_coordinate iteration maximum_iterations =
+  if iteration ≤ 1000
+    then (number_to_double iteration - 100.0) / 900.0
+    else
+      (number_to_double iteration - 1000.0) /
+      safe_span (number_to_double maximum_iterations - 1000.0)
+
+public export
+iterate_special :
+  Options →
+  AttractorDefinition →
+  Number →
+  Point4 →
+  Point4
+iterate_special options definition iteration (MkPoint4 x y z w) =
+  let default_z = x * x + y * y
+      default_w = special_time_coordinate iteration options.maximum_iterations
+  in case definition.system_kind of
+       absolute_map ⇒
+         let xn =
+               coef 0 definition +
+               coef 1 definition * x +
+               coef 2 definition * y +
+               coef 3 definition * abs x +
+               coef 4 definition * abs y
+             yn =
+               coef 5 definition +
+               coef 6 definition * x +
+               coef 7 definition * y +
+               coef 8 definition * abs x +
+               coef 9 definition * abs y
+         in MkPoint4 xn yn default_z default_w
+       boolean_map ⇒
+         let left_and_x = cint (coef 3 definition * x)
+             right_and_x = cint (coef 4 definition * y)
+             left_or_x = cint (coef 5 definition * x)
+             right_or_x = cint (coef 6 definition * y)
+             left_and_y = cint (coef 10 definition * x)
+             right_and_y = cint (coef 11 definition * y)
+             left_or_y = cint (coef 12 definition * x)
+             right_or_y = cint (coef 13 definition * y)
+             xn =
+               coef 0 definition +
+               coef 1 definition * x +
+               coef 2 definition * y +
+               cast (word16_and left_and_x right_and_x) +
+               cast (word16_or left_or_x right_or_x)
+             yn =
+               coef 7 definition +
+               coef 8 definition * x +
+               coef 9 definition * y +
+               cast (word16_and left_and_y right_and_y) +
+               cast (word16_or left_or_y right_or_y)
+         in MkPoint4 xn yn default_z default_w
+       power_map ⇒
+         let xn =
+               coef 0 definition +
+               coef 1 definition * x +
+               coef 2 definition * y +
+               coef 3 definition * pow (abs x) (coef 4 definition) +
+               coef 5 definition * pow (abs y) (coef 6 definition)
+             yn =
+               coef 7 definition +
+               coef 8 definition * x +
+               coef 9 definition * y +
+               coef 10 definition * pow (abs x) (coef 11 definition) +
+               coef 12 definition * pow (abs y) (coef 13 definition)
+         in MkPoint4 xn yn default_z default_w
+       sine_map ⇒
+         let xn =
+               coef 0 definition +
+               coef 1 definition * x +
+               coef 2 definition * y +
+               coef 3 definition * sin (coef 4 definition * x + coef 5 definition) +
+               coef 6 definition * sin (coef 7 definition * y + coef 8 definition)
+             yn =
+               coef 9 definition +
+               coef 10 definition * x +
+               coef 11 definition * y +
+               coef 12 definition * sin (coef 13 definition * x + coef 14 definition) +
+               coef 15 definition * sin (coef 16 definition * y + coef 17 definition)
+         in MkPoint4 xn yn default_z default_w
+       kicked_map ⇒
+         let two_pi = 6.28318530717959
+             alpha = two_pi / (13.0 + 10.0 * coef 5 definition)
+             sin_alpha = sin alpha
+             cos_alpha = cos alpha
+             temporary = x + coef 1 definition * sin (coef 2 definition * y + coef 3 definition)
+             xn = 10.0 * coef 0 definition + temporary * cos_alpha + y * sin_alpha
+             yn = 10.0 * coef 4 definition - temporary * sin_alpha + y * cos_alpha
+         in MkPoint4 xn yn default_z default_w
+       forced_oscillator ⇒
+         let epsilon = options.epsilon
+             xn = x + epsilon * coef 0 definition * y
+             yn =
+               y + epsilon *
+               (coef 1 definition * x +
+                coef 2 definition * x * x * x +
+                coef 3 definition * x * x * y +
+                coef 4 definition * x * y * y +
+                coef 5 definition * y +
+                coef 6 definition * y * y * y +
+                coef 7 definition * sin z)
+             raw_z = z + epsilon * (coef 8 definition + 1.3)
+             zn = if raw_z > 6.28318530717959 then raw_z - 6.28318530717959 else raw_z
+         in MkPoint4 xn yn zn default_w
+       _ ⇒ MkPoint4 x y default_z default_w
+
+public export
+iterate_definition :
+  Options →
+  AttractorDefinition →
+  Number →
+  Point4 →
+  Point4
+iterate_definition options definition iteration point =
+  case special_number definition.system_kind of
+    Just _ ⇒ iterate_special options definition iteration point
+    Nothing ⇒
+      let raw = polynomial_value definition point
+      in case definition.system_kind of
+           polynomial_ode ⇒
+             let active = coordinates_for_dimension definition.dimension point
+                 derivatives = coordinates_for_dimension definition.dimension raw
+                 advanced =
+                   zipWith
+                     (\value, derivative ⇒ value + options.epsilon * derivative)
+                     active
+                     derivatives
+             in point_from_values advanced
+           _ ⇒ raw
+
+-- --------------------------------------------------------------------------
+-- Initialization and parameter reset (1300, 1500)
+-- --------------------------------------------------------------------------
+
+public export
+empty_view : ViewState
+empty_view =
+  MkViewState
+    initial_bounds
+    (-0.1) 1.1 (-0.1) 1.1
+    0.5 0.5 0.0
+    1.0 1.0 0.0 0.0
+
+public export
+initial_analysis : AnalysisState
+initial_analysis =
+  MkAnalysisState
+    (MkPoint4 0.050001 0.05 0.05 0.05)
+    0.0
+    0
+    0.0
+    0
+    0
+    0.0
+    0.0
+
+public export
+new_program_state :
+  Options →
+  AttractorDefinition →
+  RunMode →
+  RandomState →
+  ProgramState
+new_program_state options definition mode random =
+  MkProgramState
+    options
+    definition
+    mode
+    (MkPoint4 0.05 0.05 0.05 0.05)
+    origin4
+    0
+    (replicate 500 origin4)
+    0
+    empty_view
+    initial_analysis
+    random
+    0
+    0
+
+public export
+reset_parameters : AttractorDefinition → ProgramState → ProgramState
+reset_parameters definition state =
+  MkProgramState
+    state.options
+    definition
+    state.run_mode
+    (MkPoint4 0.05 0.05 0.05 0.05)
+    origin4
+    0
+    (replicate 500 origin4)
+    0
+    empty_view
+    initial_analysis
+    state.random
+    state.found_count
+    state.evaluate_count
+
+-- --------------------------------------------------------------------------
+-- Lyapunov exponent (2900)
+-- --------------------------------------------------------------------------
+
+public export
+lyapunov_step : ProgramState → ProgramState
+lyapunov_step state =
+  let saved = state.next
+      nearby_next =
+        iterate_definition
+          state.options
+          state.definition
+          state.iteration
+          state.analysis.nearby
+      distance_squared = point_distance_squared nearby_next saved
+  in if distance_squared ≤ 0.0
+       then state
+       else
+         let scaled_distance = 1000000000000.0 * distance_squared
+             rescale = 1.0 / sqrt scaled_distance
+             delta = point_subtract nearby_next saved
+             new_nearby = point_add saved (point_scale rescale delta)
+             new_samples = S state.analysis.lyapunov_samples
+             new_sum = state.analysis.lyapunov_sum + log scaled_distance
+             raw_lyapunov =
+               0.721347 * new_sum / number_to_double new_samples
+             adjusted =
+               case state.definition.system_kind of
+                 polynomial_ode ⇒ raw_lyapunov / state.options.epsilon
+                 forced_oscillator ⇒ raw_lyapunov / state.options.epsilon
+                 _ ⇒ raw_lyapunov
+             analysis =
+               MkAnalysisState
+                 new_nearby
+                 new_sum
+                 new_samples
+                 adjusted
+                 state.analysis.dimension_near
+                 state.analysis.dimension_very_near
+                 state.analysis.fractal_dimension
+                 state.analysis.distance_max_squared
+         in { analysis := analysis } state
+
+-- --------------------------------------------------------------------------
+-- View bounds and projections (3100, 4100, 6700-6900)
+-- --------------------------------------------------------------------------
+
+expand_small_span : Double → Double → (Double, Double)
+expand_small_span low high =
+  if high - low < 0.000001
+    then (low - 0.0000005, high + 0.0000005)
+    else (low, high)
+
+public export
+resize_view : ProgramState → ProgramState
+resize_view state =
+  let bounds0 = state.view.bounds
+      y_base_min = if state.definition.dimension ≟ 1 then bounds0.x_min else bounds0.y_min
+      y_base_max = if state.definition.dimension ≟ 1 then bounds0.x_max else bounds0.y_max
+      (xmin, xmax) = expand_small_span bounds0.x_min bounds0.x_max
+      (ymin, ymax) = expand_small_span y_base_min y_base_max
+      (zmin, zmax) = expand_small_span bounds0.z_min bounds0.z_max
+      (wmin, wmax) = expand_small_span bounds0.w_min bounds0.w_max
+      margin_x = 0.1 * (xmax - xmin)
+      margin_y = 0.1 * (ymax - ymin)
+      x_low = xmin - margin_x
+      x_high = xmax + margin_x
+      y_low = ymin - margin_y
+      y_high_with_header = ymax + 1.5 * margin_y
+      y_high = y_high_with_header - 0.5 * margin_y
+      x_axis = (x_low + x_high) / 2.0
+      y_axis = (y_low + y_high) / 2.0
+      z_axis = (zmax + zmin) / 2.0
+      theta = 3.1416 / safe_span (xmax - xmin)
+      phi = 3.1416 / safe_span (ymax - ymin)
+      tangent = 0.05
+      shadow_x = -tangent * (xmax - xmin) / safe_span (zmax - zmin)
+      shadow_y = tangent * (ymax - ymin) / safe_span (zmax - zmin)
+      new_bounds = MkBounds4 xmin xmax ymin ymax zmin zmax wmin wmax
+      view =
+        MkViewState
+          new_bounds
+          x_low x_high y_low y_high
+          x_axis y_axis z_axis
+          theta phi shadow_x shadow_y
+  in { view := view } state
+
+update_bounds_with : Point4 → Bounds4 → Bounds4
+update_bounds_with (MkPoint4 x y z w) bounds =
+  MkBounds4
+    (if x < bounds.x_min then x else bounds.x_min)
+    (if x > bounds.x_max then x else bounds.x_max)
+    (if y < bounds.y_min then y else bounds.y_min)
+    (if y > bounds.y_max then y else bounds.y_max)
+    (if z < bounds.z_min then z else bounds.z_min)
+    (if z > bounds.z_max then z else bounds.z_max)
+    (if w < bounds.w_min then w else bounds.w_min)
+    (if w > bounds.w_max then w else bounds.w_max)
+
+public export
+project_sphere : ViewState → Point2 → Point2
+project_sphere view (MkPoint2 xp yp) =
+  let theta = view.theta_scale * (view.bounds.x_max - xp)
+      phi = view.phi_scale * (view.bounds.y_max - yp)
+      projected_x =
+        view.x_axis +
+        0.36 * (view.x_high - view.x_low) * cos theta * sin phi
+      projected_y =
+        view.y_axis +
+        0.5 * (view.y_high - view.y_low) * cos phi
+  in MkPoint2 projected_x projected_y
+
+public export
+project_horizontal_cylinder : ViewState → Point2 → Point2
+project_horizontal_cylinder view (MkPoint2 xp yp) =
+  let phi = view.phi_scale * (view.bounds.y_max - yp)
+  in MkPoint2
+       xp
+       (view.y_axis + 0.5 * (view.y_high - view.y_low) * cos phi)
+
+public export
+project_vertical_cylinder : ViewState → Point2 → Point2
+project_vertical_cylinder view (MkPoint2 xp yp) =
+  let theta = view.theta_scale * (view.bounds.x_max - xp)
+  in MkPoint2
+       (view.x_axis + 0.5 * (view.x_high - view.x_low) * cos theta)
+       yp
+
+public export
+project_torus : ViewState → Point2 → Point2
+project_torus view (MkPoint2 xp yp) =
+  let theta = view.theta_scale * (view.bounds.x_max - xp)
+      phi = 2.0 * view.phi_scale * (view.bounds.y_max - yp)
+      projected_x =
+        view.x_axis +
+        0.18 * (view.x_high - view.x_low) * (1.0 + cos theta) * sin phi
+      projected_y =
+        view.y_axis +
+        0.25 * (view.y_high - view.y_low) * (1.0 + cos theta) * cos phi
+  in MkPoint2 projected_x projected_y
+
+public export
+apply_projection : Projection → ViewState → Point2 → Point2
+apply_projection planar _ point = point
+apply_projection spherical view point = project_sphere view point
+apply_projection horizontal_cylinder view point = project_horizontal_cylinder view point
+apply_projection vertical_cylinder view point = project_vertical_cylinder view point
+apply_projection toroidal view point = project_torus view point
+
+-- --------------------------------------------------------------------------
+-- Plotting policy (5000, 5400, 5600)
+-- --------------------------------------------------------------------------
+
+palette_color : Number → Int
+palette_color 0 = 0
+palette_color 1 = 8
+palette_color 2 = 7
+palette_color 3 = 15
+palette_color index = 1 + (mod (number_to_int index) 15)
+
+range_fraction : Double → Double → Double → Double
+range_fraction value low high = (value - low) / safe_span (high - low)
+
+is_fourth_bands : FourthDimensionMode → Bool
+is_fourth_bands fourth_bands = True
+is_fourth_bands _ = False
+
+is_fourth_colors : FourthDimensionMode → Bool
+is_fourth_colors fourth_colors = True
+is_fourth_colors _ = False
+
+public export
+plot_operations : ProgramState → Point2 → List PlotOperation
+plot_operations state input_point =
+  let MkPoint4 _ _ z w = state.current
+      view = state.view
+      bounds = view.bounds
+      dimension = state.definition.dimension
+      fourth_mode = state.options.fourth_dimension
+      third_mode = state.options.third_dimension
+      w_fraction = range_fraction w bounds.w_min bounds.w_max
+      z_fraction = range_fraction z bounds.z_min bounds.z_max
+      fourth_color = 1 + (mod (cast (floor (15.0 * w_fraction + 15.0))) 15)
+      c4 =
+        if dimension < 4
+          then 15
+          else case fourth_mode of
+                 fourth_colors ⇒ fourth_color
+                 _ ⇒ 15
+      fourth_band_hidden =
+        dimension ≥ 4 &&
+        is_fourth_bands fourth_mode &&
+        (mod (cast (floor (30.0 * w_fraction))) 2 ≟ 1)
+  in if fourth_band_hidden
+       then []
+       else if dimension < 3
+         then [PlotDefault input_point]
+         else case third_mode of
+           third_projection ⇒ [PlotPoint input_point c4]
+           shadow ⇒
+             let MkPoint2 xp yp = input_point
+                 shifted =
+                   MkPoint2
+                     (xp - view.shadow_x_scale * (z - bounds.z_min))
+                     (yp - view.shadow_y_scale * (z - bounds.z_min))
+             in [ReadThenShadow input_point shifted c4 7 15]
+           third_bands ⇒
+             let stripe = mod (cast (floor (15.0 * z_fraction + 2.0))) 2
+                 color_index =
+                   mod (cast (floor (60.0 * z_fraction + 4.0))) 4
+             in if dimension > 3 && is_fourth_colors fourth_mode && stripe ≟ 1
+                  then [PlotPoint input_point c4]
+                  else [PlotPoint input_point (palette_color (int_to_number_nonnegative color_index))]
+           third_colors ⇒
+             let color = mod (cast (floor (15.0 * z_fraction + 15.0))) 15
+             in [PlotPoint input_point (palette_color (int_to_number_nonnegative color))]
+           anaglyph ⇒
+             let MkPoint2 xp yp = input_point
+                 right = MkPoint2 (xp + view.shadow_x_scale * (z - view.z_axis)) yp
+                 left = MkPoint2 (xp - view.shadow_x_scale * (z - view.z_axis)) yp
+             in [ReadThenAnaglyph right left 15 12 11 8]
+           stereogram ⇒
+             let MkPoint2 xp yp = input_point
+                 scale = 2.0
+                 right =
+                   MkPoint2
+                     (view.x_axis +
+                      (xp + view.shadow_x_scale * (z - view.z_axis) - view.x_low) / scale)
+                     yp
+                 left =
+                   MkPoint2
+                     (view.x_axis +
+                      (xp - view.shadow_x_scale * (z - view.z_axis) - view.x_high) / scale)
+                     yp
+             in [PlotStereo right left c4]
+           slices ⇒
+             let MkPoint2 xp yp = input_point
+                 dz = (15.0 * z_fraction + 0.5) / 16.0
+                 x_slot = mod (cast (floor (16.0 * dz))) 4
+                 y_slot = 3 - (mod (cast (floor (4.0 * dz))) 4)
+                 sliced_x =
+                   (xp - view.x_low + cast x_slot * (view.x_high - view.x_low)) / 4.0 +
+                    view.x_low
+                 sliced_y =
+                   (yp - view.y_low + cast y_slot * (view.y_high - view.y_low)) / 4.0 +
+                     view.y_low
+             in [PlotPoint (MkPoint2 sliced_x sliced_y) c4]
+
+public export
+grid_lines : ViewState → List PlotOperation
+grid_lines view = vertical 0 ++ horizontal 0
+  where
+    vertical : Number → List PlotOperation
+    vertical index =
+      if index > 15
+        then []
+        else
+          let xp =
+                view.bounds.x_min +
+                number_to_double index *
+                (view.bounds.x_max - view.bounds.x_min) /
+                15.0
+          in DrawLine
+               (MkPoint2 xp view.bounds.y_min)
+               (MkPoint2 xp view.bounds.y_max)
+               0 ::
+             vertical (S index)
+
+    horizontal : Number → List PlotOperation
+    horizontal index =
+      if index > 10
+        then []
+        else
+          let yp =
+                view.bounds.y_min +
+                number_to_double index *
+                (view.bounds.y_max - view.bounds.y_min) /
+                10.0
+          in DrawLine
+               (MkPoint2 view.bounds.x_min yp)
+               (MkPoint2 view.bounds.x_max yp)
+               0 ::
+             horizontal (S index)
+
+-- --------------------------------------------------------------------------
+-- Display stage (2100)
+-- --------------------------------------------------------------------------
+
+ring_write : Number → Point4 → List Point4 → List Point4
+ring_write position point ring = replace_at position point ring
+
+ring_index : Number → Number
+ring_index position = mod position 500
+
+public export
+display_results : ProgramState → (ProgramState, List ProgramEffect)
+display_results state =
+  let should_measure = state.iteration ≥ 100 && state.iteration ≤ 1000
+      measured_bounds =
+        if should_measure
+          then update_bounds_with state.current state.view.bounds
+          else state.view.bounds
+      measured_view = { bounds := measured_bounds } state.view
+      measured_state = { view := measured_view } state
+      resized =
+        if state.iteration ≟ 1000
+          then resize_view measured_state
+          else measured_state
+      ring = ring_write resized.ring_position resized.current resized.ring
+      next_position = ring_index (S resized.ring_position)
+      previous =
+        mod (next_position + 500 - resized.options.previous_iterate) 500
+      previous_point = at_or origin4 previous ring
+      base_point =
+        if resized.definition.dimension ≟ 1
+          then MkPoint2 previous_point.x resized.next.x
+          else MkPoint2 resized.current.x resized.current.y
+      inside =
+        resized.iteration ≥ 1000 &&
+        base_point.point_x > resized.view.x_low &&
+        base_point.point_x < resized.view.x_high &&
+        base_point.point_y > resized.view.y_low &&
+        base_point.point_y < resized.view.y_high
+      projected = apply_projection resized.options.projection resized.view base_point
+      plots = if inside then plot_operations resized projected else []
+      with_ring =
+        { ring := ring, ring_position := next_position } resized
+      effects = map Draw plots
+  in (with_ring, effects)
+
+-- --------------------------------------------------------------------------
+-- Fractal dimension estimate (3900)
+-- --------------------------------------------------------------------------
+
+public export
+fractal_dimension_step : ProgramState → ProgramState
+fractal_dimension_step state =
+  if state.iteration < 1000
+    then state
+    else
+      let bounds = state.view.bounds
+          initialized_distance =
+            (bounds.x_max - bounds.x_min) * (bounds.x_max - bounds.x_min) +
+            (bounds.y_max - bounds.y_min) * (bounds.y_max - bounds.y_min) +
+            (bounds.z_max - bounds.z_min) * (bounds.z_max - bounds.z_min) +
+            (bounds.w_max - bounds.w_min) * (bounds.w_max - bounds.w_min)
+          d2max =
+            if state.iteration ≟ 1000
+              then initialized_distance
+              else state.analysis.distance_max_squared
+          (random_value, next_random) = next_raw_random state.random
+          random_offset = cast (floor (480.0 * random_value))
+          index =
+            mod (state.ring_position + 1 + int_to_number_nonnegative random_offset) 500
+          comparison = at_or origin4 index state.ring
+          d2 = point_distance_squared state.next comparison
+          scale = pow 2.0 (number_to_double state.definition.dimension)
+          near_count =
+            if d2 < 0.001 * scale * d2max
+              then S state.analysis.dimension_near
+              else state.analysis.dimension_near
+          very_near = d2 ≤ 0.00001 * scale * d2max
+          very_count =
+            if very_near
+              then S state.analysis.dimension_very_near
+              else state.analysis.dimension_very_near
+          dimension =
+            if very_near && very_count > 0
+              then
+                0.434294 *
+                log
+                  (number_to_double near_count /
+                   (number_to_double very_count - 0.5))
+              else state.analysis.fractal_dimension
+          analysis =
+            MkAnalysisState
+              state.analysis.nearby
+              state.analysis.lyapunov_sum
+              state.analysis.lyapunov_samples
+              state.analysis.lyapunov
+              near_count
+              very_count
+              dimension
+              d2max
+      in { analysis := analysis, random := next_random } state
+
+-- --------------------------------------------------------------------------
+-- Sound (3500) and data saving (7000)
+-- --------------------------------------------------------------------------
+
+public export
+sound_event : ProgramState → Maybe ProgramEffect
+sound_event state =
+  if not state.options.sound_enabled
+    then Nothing
+    else
+      let view = state.view
+          x_fraction =
+            (state.next.x - view.x_low) /
+            safe_span (view.x_high - view.x_low)
+          semitones = cast (floor (36.0 * x_fraction + 0.5))
+          frequency = cast (220.0 * pow 2.0 (cast semitones / 12.0))
+          duration =
+            if state.definition.dimension > 1
+              then
+                let denominator =
+                      state.next.y -
+                      9.0 * view.y_low / 8.0 +
+                      view.y_high / 8.0
+                    exponent =
+                      floor
+                        (0.5 * (view.y_high - view.y_low) /
+                         safe_span denominator)
+                in cast (pow 2.0 exponent)
+              else 1
+      in Just (PlayTone (MkTone frequency duration))
+
+public export
+saved_scalar : SaveAxis → Point4 → Maybe Double
+saved_scalar save_none _ = Nothing
+saved_scalar save_x point = Just point.x
+saved_scalar save_y point = Just point.y
+saved_scalar save_z point = Just point.z
+saved_scalar save_w point = Just point.w
+
+-- --------------------------------------------------------------------------
+-- Result tests (2400)
+-- --------------------------------------------------------------------------
+
+public export
+test_results : ProgramState → (ProgramState, List ProgramEffect, TestDecision)
+test_results state =
+  let divergent = point_abs_sum state.next > 1000000.0
+      fixed_point = point_abs_sum (point_subtract state.next state.current) < 0.000001
+      limit_cycle = state.iteration > 100 && state.analysis.lyapunov < 0.005
+      found = state.iteration ≥ state.options.maximum_iterations
+      dictionary_line =
+        code_text state.definition.code ++
+        " " ++ show state.analysis.fractal_dimension ++
+        " " ++ show state.analysis.lyapunov
+      save_effect =
+        case saved_scalar state.options.save_axis state.next of
+          Nothing ⇒ []
+          Just value ⇒
+            if state.iteration > 1000 && state.iteration < 17001
+              then [SaveScalar state.options.save_axis value]
+              else []
+  in if divergent
+       then (state, save_effect, RestartParameters)
+       else case state.run_mode of
+         evaluating ⇒ (state, save_effect, Continue)
+         _ ⇒
+           if found
+             then
+               let found_state = { found_count := S state.found_count } state
+               in (found_state, AppendDictionary dictionary_line :: save_effect, RestartParameters)
+             else if fixed_point || limit_cycle
+               then (state, save_effect, RestartParameters)
+               else (state, save_effect, Continue)
+
+-- --------------------------------------------------------------------------
+-- Menu and command semantics (3600, 4200, 5800)
+-- --------------------------------------------------------------------------
+
+public export
+menu_lines : ProgramState → List String
+menu_lines state =
+  [ "STRANGE ATTRACTOR PROGRAM"
+  , "Idriç whole-program port of the 1993 BASIC behavior"
+  , "A: Search for attractors"
+  , "C: Clear screen and restart"
+  , "D: Cycle system family/dimension"
+  , "E: Evaluate attractors"
+  , "H: Cycle fourth-dimension display"
+  , "I: Input code"
+  , "N: Cycle iteration count"
+  , "P: Cycle projection"
+  , "R: Cycle third-dimension display"
+  , "S: Toggle sound"
+  , "V: Cycle saved coordinate"
+  , "X: Exit"
+  ]
+
+next_projection : Projection → Projection
+next_projection planar = spherical
+next_projection spherical = horizontal_cylinder
+next_projection horizontal_cylinder = vertical_cylinder
+next_projection vertical_cylinder = toroidal
+next_projection toroidal = planar
+
+next_third : ThirdDimensionMode → ThirdDimensionMode
+next_third third_projection = shadow
+next_third shadow = third_bands
+next_third third_bands = third_colors
+next_third third_colors = anaglyph
+next_third anaglyph = stereogram
+next_third stereogram = slices
+next_third slices = third_projection
+
+next_fourth : FourthDimensionMode → FourthDimensionMode
+next_fourth fourth_projection = fourth_bands
+next_fourth fourth_bands = fourth_colors
+next_fourth fourth_colors = fourth_projection
+
+next_save : SaveAxis → SaveAxis
+next_save save_none = save_x
+next_save save_x = save_y
+next_save save_y = save_z
+next_save save_z = save_w
+next_save save_w = save_none
+
+cycle_iteration_limit : Number → Number
+cycle_iteration_limit current =
+  let next = 10 * (current - 1000) + 1000
+  in if next > 10000000000 then 2000 else next
+
+public export
+apply_menu_command : Char → ProgramState → (ProgramState, List ProgramEffect, TestDecision)
+apply_menu_command command state =
+  case toUpper command of
+    'A' ⇒ ({ run_mode := searching } state, [], RestartProgram)
+    'C' ⇒
+      let iteration = if state.iteration > 999 then 999 else state.iteration
+      in ({ iteration := iteration } state, [Draw ClearCanvas], Continue)
+    'E' ⇒ ({ run_mode := evaluating } state, [], RestartProgram)
+    'H' ⇒
+      let options = { fourth_dimension := next_fourth state.options.fourth_dimension } state.options
+          iteration = if state.iteration > 999 then 999 else state.iteration
+      in ({ options := options, iteration := iteration } state, [], Continue)
+    'N' ⇒
+      let options = { maximum_iterations := cycle_iteration_limit state.options.maximum_iterations } state.options
+      in ({ options := options } state, [], Continue)
+    'P' ⇒
+      let options = { projection := next_projection state.options.projection } state.options
+          iteration = if state.iteration > 999 then 999 else state.iteration
+      in ({ options := options, iteration := iteration } state, [], Continue)
+    'R' ⇒
+      let options = { third_dimension := next_third state.options.third_dimension } state.options
+          iteration = if state.iteration > 999 then 999 else state.iteration
+      in ({ options := options, iteration := iteration } state, [], Continue)
+    'S' ⇒
+      let options = { sound_enabled := not state.options.sound_enabled } state.options
+      in ({ options := options } state, [], Continue)
+    'V' ⇒
+      let options = { save_axis := next_save state.options.save_axis } state.options
+          iteration = if state.iteration > 999 then 999 else state.iteration
+      in ({ options := options, iteration := iteration } state, [], Continue)
+    'X' ⇒ (state, [], ExitProgram)
+    _ ⇒ (state, map (\line ⇒ WriteText 0 0 line) (menu_lines state), Continue)
+
+public export
+process_evaluation_command : Char → ProgramState → (ProgramState, List ProgramEffect, EvaluationAction)
+process_evaluation_command command state =
+  if command ≟ ' '
+    then
+      ({ evaluate_count := S state.evaluate_count } state,
+       [Draw ClearCanvas],
+       DiscardCurrent)
+    else if ord command ≟ 13
+      then
+        ({ evaluate_count := S state.evaluate_count } state,
+         [Draw ClearCanvas, AppendFavorite (code_text state.definition.code)],
+         SaveCurrent)
+      else if ord command ≟ 27
+        then (state, [Draw ClearCanvas], FinishEvaluation)
+        else (state, [], KeepEvaluating)
+
+-- --------------------------------------------------------------------------
+-- Graphics mode fallback (6600)
+-- --------------------------------------------------------------------------
+
+public export
+fallback_graphics_mode : Int → Maybe Int
+fallback_graphics_mode mode =
+  if mode ≤ 1 then Nothing else Just (mode - 1)
+
+-- -----------------------------------------------------------------------
+-- One complete search/evaluation iteration (1170-1240)
+-- --------------------------------------------------------------------------
+
+public export
+step_program : ProgramState → StepResult
+step_program state =
+  let next_point =
+        iterate_definition
+          state.options
+          state.definition
+          state.iteration
+          state.current
+      iterated = { next := next_point, iteration := S state.iteration } state
+      (displayed, draw_effects) = display_results iterated
+      analyzed =
+        case displayed.run_mode of
+          evaluating ⇒ displayed
+          _ ⇒ fractal_dimension_step (lyapunov_step displayed)
+      (tested, test_effects, decision) = test_results analyzed
+      tone_effects =
+        case sound_event tested of
+          Nothing ⇒ []
+          Just effect ⇒ [effect]
+      advanced = { current := tested.next } tested
+  in MkStepResult advanced (draw_effects ++ tone_effects ++ test_effects) decision
+
+public export
+run_steps : Number → ProgramState → ProgramState
+run_steps Z state = state
+run_steps (S remaining) state =
+  let result = step_program state
+  in case result.decision of
+       Continue ⇒ run_steps remaining result.state
+       _ ⇒ result.state

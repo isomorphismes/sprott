@@ -1,0 +1,39 @@
+module Main
+
+import SprottBasic
+import SprottBasicTypes
+
+%default total
+%unbound_implicits off
+
+show_kind : SystemKind → String
+show_kind polynomial_map = "polynomial map"
+show_kind polynomial_ode = "polynomial ODE"
+show_kind absolute_map = "absolute-value map"
+show_kind boolean_map = "Boolean map"
+show_kind power_map = "power map"
+show_kind sine_map = "sine map"
+show_kind kicked_map = "kicked map"
+show_kind forced_oscillator = "forced oscillator"
+
+main : IO ()
+main = do
+  let random = initial_random 1993
+  let (definition, random_after_code) =
+        generate_definition default_options polynomial_map 2 random
+  let program =
+        new_program_state
+          default_options
+          definition
+          searching
+          random_after_code
+  let after = run_steps 64 program
+  putStrLn ("code=" ++ code_text definition.code)
+  putStrLn ("kind=" ++ show_kind definition.system_kind)
+  putStrLn ("iterations=" ++ show after.iteration)
+  putStrLn
+    ("state=" ++
+     show after.current.x ++ "," ++
+     show after.current.y ++ "," ++
+     show after.current.z ++ "," ++
+     show after.current.w)

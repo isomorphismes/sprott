@@ -1,0 +1,108 @@
+name: Idriç Sprott BASIC translation
+
+concurrency:
+  group: idric-sprott-basic-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+on:
+  pull_request:
+    paths:
+      - "idric/**"
+      - ".github/workflows/idric-basic.yml"
+  push:
+    branches:
+      - idric/basic-whole-hog
+    paths:
+      - "idric/**"
+      - ".github/workflows/idric-basic.yml"
+
+jobs:
+  semantic-port:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out exact Sprott source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Check out pinned Idriç compiler
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          repository: dilapidated-shed/Idric
+          ref: 51e3892d4de59943e42e65c60a9814aba792c5d4
+          path: .idric-toolchain
+          persist-credentials: false
+
+      - name: Restore pinned Idriç bootstrap
+        id: idric-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .idric-toolchain/_/.tools
+            .idric-toolchain/_/bootstrap-build
+            .idric-toolchain/_/build
+            .idric-toolchain/_/libs/prelude/build
+            .idric-toolchain/_/libs/base/build
+            .idric-toolchain/_/libs/linear/build
+            .idric-toolchain/_/libs/network/build
+            .idric-toolchain/_/libs/contrib/build
+            .idric-toolchain/_/libs/test/build
+            .idric-toolchain/_/libs/papers/build
+          key: idric-linux-51e3892d4de59943e42e65c60a9814aba792c5d4
+
+      - name: Bootstrap pinned Idriç
+        if: steps.idric-cache.outputs.cache-hit != 'true'
+        run: ./.idric-toolchain/edric bootstrap
+
+      - name: Save pinned Idriç bootstrap
+        if: steps.idric-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            .idric-toolchain/_/.tools
+            .idric-toolchain/_/bootstrap-build
+            .idric-toolchain/_/build
+            .idric-toolchain/_/libs/prelude/build
+            .idric-toolchain/_/libs/base/build
+            .idric-toolchain/_/libs/linear/build
+            .idric-toolchain/_/libs/network/build
+            .idric-toolchain/_/libs/contrib/build
+            .idric-toolchain/_/libs/test/build
+            .idric-toolchain/_/libs/papers/build
+          key: idric-linux-51e3892d4de59943e42e65c60a9814aba792c5d4
+
+      - name: Typecheck semantic tests through Idriç handoff
+        run: |
+          cd idric
+          ../.idric-toolchain/edric --emit-one-step \
+            SprottBasicTests.idric \
+            -o "$RUNNER_TEMP/sprott-basic-tests.anf"
+
+      - name: Run semantic tests
+        run: |
+          support_root="$GITHUB_WORKSPACE/.idric-toolchain/_"
+          compiler="$support_root/build/exec/idris2"
+          library_path="$support_root/libs/prelude/build/ttc:$support_root/libs/base/build/ttc:$support_root/libs/linear/build/ttc:$support_root/libs/network/build/ttc:$support_root/libs/contrib/build/ttc:$support_root/libs/test/build/ttc:"
+          cd "$GITHUB_WORKSPACE/idric"
+          PATH="$support_root/.tools/bin:$PATH" \
+          IDRIS2_PREFIX="$support_root/bootstrap-build" \
+          IDRIS2_PATH="$library_path" \
+            "$compiler" --exec main SprottBasicTests.idric \
+              | tee "$RUNNER_TEMP/sprott-basic-tests.txt"
+          grep -Fx "PASS: Sprott BASIC Idriç semantic tests" \
+            "$RUNNER_TEMP/sprott-basic-tests.txt"
+
+      - name: Run deterministic translated program
+        run: |
+          support_root="$GITHUB_WORKSPACE/.idric-toolchain/_"
+          compiler="$support_root/build/exec/idris2"
+          library_path="$support_root/libs/prelude/build/ttc:$support_root/libs/base/build/ttc:$support_root/libs/linear/build/ttc:$support_root/libs/network/build/ttc:$support_root/libs/contrib/build/ttc:$support_root/libs/test/build/ttc:"
+          cd "$GITHUB_WORKSPACE/idric"
+          PATH="$support_root/.tools/bin:$PATH" \
+          IDRIS2_PREFIX="$support_root/bootstrap-build" \
+          IDRIS2_PATH="$library_path" \
+            "$compiler" --exec main Main.idric \
+              | tee "$RUNNER_TEMP/sprott-idric-run.txt"
+          grep -q '^iterations=' "$RUNNER_TEMP/sprott-idric-run.txt"

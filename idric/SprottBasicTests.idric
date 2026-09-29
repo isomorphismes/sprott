@@ -1,0 +1,82 @@
+module SprottBasicTests
+
+import SprottBasic
+import SprottBasicTypes
+
+%default total
+%unbound_implicits off
+
+fail : String → IO ()
+fail message = idris_crash message
+
+check : String → Bool → IO ()
+check _ True = pure ()
+check label False = fail ("FAIL: " ++ label)
+
+near : Double → Double → Bool
+near left right = abs (left - right) ≤ 0.000001
+
+coefficient_code : List Char
+coefficient_code =
+  -- E = 2-D quadratic map, followed by twelve zero coefficients.
+  'E' :: replicate 12 'M'
+
+identity_code : List Char
+identity_code =
+  -- Terms per component for 2-D quadratic are [1, x, x², xy, y, y²].
+  -- x' = x and y' = y.
+  [ 'E'
+  , 'M', 'W', 'M', 'M', 'M', 'M'
+  , 'M', 'M', 'M', 'M', 'W', 'M'
+  ]
+
+main : IO ()
+main = do
+  let decoded = decode_code coefficient_code
+  check "decode dimension" (decoded.dimension ≟ 2)
+  check "decode order" (decoded.polynomial_order ≟ 2)
+  check "quadratic coefficient count" (length decoded.coefficients ≟ 12)
+  check "A coefficient" (near (coefficient_from_char 'A') (-1.2))
+  check "M coefficient" (near (coefficient_from_char 'M') 0.0)
+  check "Y coefficient" (near (coefficient_from_char 'Y') 1.2)
+
+  let identity = decode_code identity_code
+  let point = MkPoint4 2.0 3.0 0.0 0.0
+  let image = polynomial_value identity point
+  check "identity x" (near image.x 2.0)
+  check "identity y" (near image.y 3.0)
+
+  let special =
+        MkAttractorDefinition
+          absolute_map
+          4
+          2
+          [0.0, 1.0, 0.0, 0.0, 0.0,
+           0.0, 0.0, 1.0, 0.0, 0.0]
+          []
+  let special_image =
+        iterate_special default_options special 100 (MkPoint4 2.0 3.0 0.0 0.0)
+  check "absolute-map x" (near special_image.x 2.0)
+  check "absolute-map y" (near special_image.y 3.0)
+  check "special z" (near special_image.z 13.0)
+
+  let view =
+        MkViewState
+          (MkBounds4 (-1.0) 1.0 (-1.0) 1.0 (-1.0) 1.0 (-1.0) 1.0)
+          (-1.2) 1.2 (-1.2) 1.2
+          0.0 0.0 0.0
+          (3.1416 / 2.0) (3.1416 / 2.0)
+          (-0.1) 0.1
+  let sphere_center = project_sphere view (MkPoint2 1.0 1.0)
+  check "sphere projection finite" (abs sphere_center.point_x < 10.0 && abs sphere_center.point_y < 10.0)
+
+  check "save x" (saved_scalar save_x point ≟ Just 2.0)
+  check "save none" (saved_scalar save_none point ≟ Nothing)
+  check "graphics fallback" (fallback_graphics_mode 12 ≟ Just 11)
+
+  let random = initial_random 1
+  let (generated, _) = generate_definition default_options polynomial_map 2 random
+  check "generated coefficient count"
+    (length generated.coefficients ≟ polynomial_coefficient_count 2 generated.polynomial_order)
+
+  putStrLn "PASS: Sprott BASIC Idriç semantic tests"
