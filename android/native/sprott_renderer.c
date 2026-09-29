@@ -2,7 +2,6 @@
 
 #include <math.h>
 #include <stddef.h>
-#include <string.h>
 
 #include "sprott_renderer.h"
 #include "sprott_system.h"
@@ -20,10 +19,10 @@ static int current_height = 1;
 static float yaw = 0.35f;
 static float pitch = -0.20f;
 
-static struct sprott_state trail[SPROTT_TRAIL_POINTS];
+static float trail[SPROTT_TRAIL_POINTS][SPROTT_STATE_DIMENSION];
 static GLfloat projected[SPROTT_TRAIL_POINTS * 2];
 
-static struct sprott_state trail_center;
+static float trail_center[SPROTT_STATE_DIMENSION];
 static float trail_radius = 1.0f;
 
 static GLuint program = 0;
@@ -100,41 +99,41 @@ static GLuint build_program(void) {
 }
 
 static void build_trail(void) {
-    const struct sprott_system *system = sprott_case_b();
-    struct sprott_state state;
-    system->reset(&state, NULL);
+    float state[SPROTT_STATE_DIMENSION];
+    sprott_reset(SPROTT_SYSTEM_B, state);
 
     for (int i = 0; i < SPROTT_BURN_IN_STEPS; ++i) {
-        sprott_rk4_step(system, &state, NULL, sprott_dt);
+        sprott_rk4_step(SPROTT_SYSTEM_B, state, sprott_dt);
     }
 
-    struct sprott_state minimum = state;
-    struct sprott_state maximum = state;
+    float minimum[SPROTT_STATE_DIMENSION] = {
+        state[0], state[1], state[2]
+    };
+    float maximum[SPROTT_STATE_DIMENSION] = {
+        state[0], state[1], state[2]
+    };
 
     for (int i = 0; i < SPROTT_TRAIL_POINTS; ++i) {
         for (int step = 0; step < SPROTT_STEPS_PER_POINT; ++step) {
-            sprott_rk4_step(system, &state, NULL, sprott_dt);
+            sprott_rk4_step(SPROTT_SYSTEM_B, state, sprott_dt);
         }
 
-        trail[i] = state;
-
-        if (state.x < minimum.x) minimum.x = state.x;
-        if (state.y < minimum.y) minimum.y = state.y;
-        if (state.z < minimum.z) minimum.z = state.z;
-        if (state.x > maximum.x) maximum.x = state.x;
-        if (state.y > maximum.y) maximum.y = state.y;
-        if (state.z > maximum.z) maximum.z = state.z;
+        for (int axis = 0; axis < SPROTT_STATE_DIMENSION; ++axis) {
+            trail[i][axis] = state[axis];
+            if (state[axis] < minimum[axis]) minimum[axis] = state[axis];
+            if (state[axis] > maximum[axis]) maximum[axis] = state[axis];
+        }
     }
 
-    trail_center.x = 0.5f * (minimum.x + maximum.x);
-    trail_center.y = 0.5f * (minimum.y + maximum.y);
-    trail_center.z = 0.5f * (minimum.z + maximum.z);
+    for (int axis = 0; axis < SPROTT_STATE_DIMENSION; ++axis) {
+        trail_center[axis] = 0.5f * (minimum[axis] + maximum[axis]);
+    }
 
     trail_radius = 0.0f;
     for (int i = 0; i < SPROTT_TRAIL_POINTS; ++i) {
-        const float x = trail[i].x - trail_center.x;
-        const float y = trail[i].y - trail_center.y;
-        const float z = trail[i].z - trail_center.z;
+        const float x = trail[i][0] - trail_center[0];
+        const float y = trail[i][1] - trail_center[1];
+        const float z = trail[i][2] - trail_center[2];
         const float radius = sqrtf(x * x + y * y + z * z);
         if (radius > trail_radius) {
             trail_radius = radius;
@@ -165,9 +164,9 @@ static void project_trail(void) {
     }
 
     for (int i = 0; i < SPROTT_TRAIL_POINTS; ++i) {
-        const float x = trail[i].x - trail_center.x;
-        const float y = trail[i].y - trail_center.y;
-        const float z = trail[i].z - trail_center.z;
+        const float x = trail[i][0] - trail_center[0];
+        const float y = trail[i][1] - trail_center[1];
+        const float z = trail[i][2] - trail_center[2];
 
         const float rx = cy * x + sy * z;
         const float rz = -sy * x + cy * z;
