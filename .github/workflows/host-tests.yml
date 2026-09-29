@@ -11,3 +11,17 @@ jobs:
       - uses: actions/checkout@v4
       - name: Compile and run system tests
         run: bash tests/run.sh
+
+  android-native:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        abi:
+          - armeabi-v7a
+          - arm64-v8a
+          - x86_64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile native Android library
+        run: ANDROID_ABI=${{ matrix.abi }} bash android/build-native.sh
