@@ -1,0 +1,254 @@
+module SprottBasicTypes
+
+%default total
+%unbound_implicits off
+
+public export
+record Point4 where
+  constructor MkPoint4
+  x : Double
+  y : Double
+  z : Double
+  w : Double
+
+public export
+origin4 : Point4
+origin4 = MkPoint4 0.0 0.0 0.0 0.0
+
+public export
+record Bounds4 where
+  constructor MkBounds4
+  x_min : Double
+  x_max : Double
+  y_min : Double
+  y_max : Double
+  z_min : Double
+  z_max : Double
+  w_min : Double
+  w_max : Double
+
+public export
+initial_bounds : Bounds4
+initial_bounds =
+  MkBounds4
+    1000000.0 (-1000000.0)
+    1000000.0 (-1000000.0)
+    1000000.0 (-1000000.0)
+    1000000.0 (-1000000.0)
+
+public export
+choice SystemKind one_of
+  polynomial_map
+  polynomial_ode
+  absolute_map
+  boolean_map
+  power_map
+  sine_map
+  kicked_map
+  forced_oscillator
+
+public export
+choice Projection one_of
+  planar
+  spherical
+  horizontal_cylinder
+  vertical_cylinder
+  toroidal
+
+public export
+choice ThirdDimensionMode one_of
+  third_projection
+  shadow
+  third_bands
+  third_colors
+  anaglyph
+  stereogram
+  slices
+
+public export
+choice FourthDimensionMode one_of
+  fourth_projection
+  fourth_bands
+  fourth_colors
+
+public export
+choice SaveAxis one_of
+  save_none
+  save_x
+  save_y
+  save_z
+  save_w
+
+public export
+choice RunMode one_of
+  searching
+  keyboard_code
+  evaluating
+
+public export
+record AttractorDefinition where
+  constructor MkAttractorDefinition
+  system_kind : SystemKind
+  dimension : Number
+  polynomial_order : Number
+  coefficients : List Double
+  code : List Char
+
+public export
+record RandomState where
+  constructor MkRandomState
+  seed : Integer
+  shuffle_values : List Double
+  shuffle_probe : Double
+  shuffle_ready : Bool
+
+public export
+record ViewState where
+  constructor MkViewState
+  bounds : Bounds4
+  x_low : Double
+  x_high : Double
+  y_low : Double
+  y_high : Double
+  x_axis : Double
+  y_axis : Double
+  z_axis : Double
+  theta_scale : Double
+  phi_scale : Double
+  shadow_x_scale : Double
+  shadow_y_scale : Double
+
+public export
+record AnalysisState where
+  constructor MkAnalysisState
+  nearby : Point4
+  lyapunov_sum : Double
+  lyapunov_samples : Number
+  lyapunov : Double
+  dimension_near : Number
+  dimension_very_near : Number
+  fractal_dimension : Double
+  distance_max_squared : Double
+
+public export
+record Options where
+  constructor MkOptions
+  graphics_mode : Int
+  previous_iterate : Number
+  maximum_iterations : Number
+  maximum_order : Number
+  epsilon : Double
+  sound_enabled : Bool
+  projection : Projection
+  third_dimension : ThirdDimensionMode
+  fourth_dimension : FourthDimensionMode
+  save_axis : SaveAxis
+
+public export
+default_options : Options
+default_options =
+  MkOptions
+    12
+    5
+    11000
+    5
+    0.1
+    False
+    planar
+    shadow
+    fourth_colors
+    save_none
+
+public export
+record ProgramState where
+  constructor MkProgramState
+  options : Options
+  definition : AttractorDefinition
+  run_mode : RunMode
+  current : Point4
+  next : Point4
+  iteration : Number
+  ring : List Point4
+  ring_position : Number
+  view : ViewState
+  analysis : AnalysisState
+  random : RandomState
+  found_count : Number
+  evaluate_count : Number
+
+public export
+record Point2 where
+  constructor MkPoint2
+  point_x : Double
+  point_y : Double
+
+public export
+choice BasicColor one_of
+  black
+  blue
+  green
+  cyan
+  red
+  magenta
+  brown
+  light_gray
+  dark_gray
+  light_blue
+  light_green
+  light_cyan
+  light_red
+  light_magenta
+  yellow
+  white
+
+public export
+record Tone where
+  constructor MkTone
+  frequency_hz : Int
+  duration_ticks : Int
+
+public export
+data PlotOperation
+  = PlotPoint Point2 Int
+  | PlotDefault Point2
+  | ReadThenShadow Point2 Point2 Int Int Int
+  | ReadThenAnaglyph Point2 Point2 Int Int Int Int
+  | PlotStereo Point2 Point2 Int
+  | FillRectangle Point2 Point2 Int
+  | DrawLine Point2 Point2 Int
+  | DrawCircle Point2 Double Int
+  | ClearCanvas
+
+public export
+data ProgramEffect
+  = Draw PlotOperation
+  | PlayTone Tone
+  | WriteText Int Int String
+  | ClearText
+  | AppendDictionary String
+  | AppendFavorite String
+  | ReplaceEvaluationDictionary (List String)
+  | SaveScalar SaveAxis Double
+  | Beep
+  | StopWithMessage String
+
+public export
+data TestDecision
+  = Continue
+  | RestartParameters
+  | RestartProgram
+  | ExitProgram
+
+public export
+data EvaluationAction
+  = KeepEvaluating
+  | DiscardCurrent
+  | SaveCurrent
+  | FinishEvaluation
+
+public export
+record StepResult where
+  constructor MkStepResult
+  state : ProgramState
+  effects : List ProgramEffect
+  decision : TestDecision
