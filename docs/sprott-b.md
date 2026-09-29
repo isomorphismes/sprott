@@ -34,6 +34,16 @@ definition of Case B:
 - initial camera orientation;
 - drag-to-rotate and tap-to-reset interaction.
 
-Keep that distinction explicit when adding more systems. A new system should
-supply its vector field and reset state through `struct sprott_system`.
-Android, GLES, and UI types do not belong in that interface.
+## Compiler boundary
+
+The Android build compiles `src/sprott_system.c` with ICK. The public boundary
+uses only:
+
+- an integer system identifier;
+- Float32 scalar values;
+- fixed-length Float32 arrays.
+
+Android, GLES, JNI, Activity, DEX, C structs, and function pointers do not cross
+the ICK/NDK compiler boundary.
+
+For `armeabi-v7a`, the ICK object is explicitly Thumb-2.
