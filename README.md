@@ -11,6 +11,7 @@ The first executable seam is intentionally small:
 - a host-testable dynamical-system interface in `src/`;
 - an independent implementation of Sprott Case B;
 - fixed-step RK4 evolution;
+- the Android numerical core compiled with ICK;
 - a DEX-free Android `NativeActivity` shell;
 - a GLES trail renderer;
 - drag to rotate and tap to reset.
@@ -19,6 +20,10 @@ The Android application follows the generic ownership boundary in
 `isomorphisms/android-NDK`: Android packaging/lifecycle mechanics remain
 generic precedent, while this repository owns the system, simulation,
 rendering, and interaction semantics.
+
+ICK compiles the header-free numerical core. Android NDK Clang/lld only
+compiles the Android/GLES boundary and performs the final Android link. The
+`armeabi-v7a` lane uses ICK Thumb-2 explicitly.
 
 See `docs/sprott-b.md` and `android/README.md`.
 
