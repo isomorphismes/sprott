@@ -11,29 +11,51 @@ The NativeActivity shell follows the already-working Pauli consumer shape,
 inspected at `isomorphismes/pauli` main
 `c1e8a687951d8fbcba2003dccbf5b43c3a7461e3`.
 
+The numerical core uses ICK. The Android boundary follows ICK main at
+`dilapidated-shed/ick@9f5c10a7c97ce297568190a48aaac77f450e838e`,
+whose Android qualification explicitly uses ICK for header-free leaf objects
+and Android NDK Clang/lld for the platform-facing objects and final link.
+
 No Pauli orbital semantics are carried into this repository.
 
-## Runtime shape
+## Runtime and compiler shape
 
 ```text
 android.app.NativeActivity
         |
         v
-libsprott.so
-  lifecycle / touch / EGL
+NDK-Clang-compiled Android / EGL / GLES boundary
+        |
+        | system id + Float32 scalars/arrays only
+        v
+ICK-compiled sprott_system.c
         |
         v
-sprott_renderer
-        |
-        +--> sprott_system
-        |
-        v
-GLES line trail
+Sprott vector field + RK4
 ```
 
 The package has no application `classes.dex` and no Java/Kotlin application
-layer. The renderer boundary contains no Activity, JNI, DEX, or
-`ANativeWindow` types.
+layer. ICK does not need Android headers or an Android sysroot for the numerical
+core.
+
+NDK Clang remains deliberately limited to:
+
+- Android and GLES translation units;
+- `android_native_app_glue.c`;
+- the final Android shared-library link.
+
+It does not compile `src/sprott_system.c`.
+
+## ARMv7 / MIRO A1 lane
+
+The `armeabi-v7a` core uses the flags already qualified by ICK:
+
+```text
+-march=armv7-a -mthumb -mfpu=neon -mfloat-abi=softfp
+```
+
+The build checks the ICK object for ARMv7 and Thumb-2 attributes before the
+Android link. This is the phone lane.
 
 ## Interaction
 
@@ -45,19 +67,26 @@ layer. The renderer boundary contains no Activity, JNI, DEX, or
 
 ## Build
 
-Run host tests first:
+Run the ordinary host semantic test first:
 
 ```sh
 bash tests/run.sh
 ```
 
-Build the native library:
+Supply a built ICK compiler for the selected ABI. For ARMv7:
 
 ```sh
-ANDROID_ABI=armeabi-v7a bash android/build-native.sh
+ICK_CC=/path/to/arm-linux-gnueabi-gcc \
+ANDROID_ABI=armeabi-v7a \
+bash android/build-native.sh
 ```
 
-`arm64-v8a`, `x86`, and `x86_64` use the same script.
+Alternatively point `ICK_ROOT` at an ICK installation whose `bin/` contains
+the matching target compiler.
+
+CI builds ICK from the pinned source revision before building Sprott, so the
+Android acceptance lane cannot silently fall back to stock GCC or NDK Clang for
+the numerical core.
 
 APK packaging follows the application-owned, fail-closed signing pattern used
 by Pauli. Supply:
@@ -74,7 +103,9 @@ SPROTT_EXPECTED_CERT_SHA256
 Then run:
 
 ```sh
-ANDROID_ABI=armeabi-v7a bash android/build.sh
+ICK_CC=/path/to/arm-linux-gnueabi-gcc \
+ANDROID_ABI=armeabi-v7a \
+bash android/build.sh
 ```
 
 The build emits an ABI-specific APK and a signing receipt.
