@@ -1,0 +1,7 @@
+/build/
+/out/
+/smoke/
+*.DAT
+SA.DIC
+FAVORITE.DIC
+SATEMP.DIC

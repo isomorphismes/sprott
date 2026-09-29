@@ -1,0 +1,93 @@
+name: D whole-program translation
+
+on:
+  push:
+    branches: [D]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sprott-d-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ick-gdc:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Check out Sprott branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+
+      - name: Check out pinned ICK D stack
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: dilapidated-shed/ick
+          ref: 72b28ef09d2f4bcddf0718bb43d45a231878f5dc
+          path: ick-toolchain
+          persist-credentials: false
+          submodules: true
+
+      - name: Materialize ICK and GDC source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd ick-toolchain
+          sh ick/materialize.sh gcc source
+          test -d source/libphobos/libdruntime
+          test -d source/libphobos/src
+
+      - name: Install compiler bootstrap dependencies
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential gdc flex bison texinfo \
+            libgmp-dev libmpfr-dev libmpc-dev libisl-dev libzstd-dev
+
+      - name: Build pinned ICK GDC with druntime and Phobos
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p ick-toolchain/build ick-stage
+          cd ick-toolchain/build
+          ../source/configure \
+            --prefix="$GITHUB_WORKSPACE/ick-stage" \
+            --enable-languages=c,d \
+            --enable-libphobos \
+            --with-libphobos-druntime-only=no \
+            --disable-bootstrap \
+            --disable-multilib \
+            --disable-nls \
+            --disable-shared \
+            --disable-libgomp \
+            --disable-libquadmath \
+            --disable-libssp \
+            --disable-libvtv
+          make -j"$(nproc)" all-gcc all-target-libphobos
+          make install-gcc install-target-libgcc install-target-libphobos
+
+      - name: Build and test the D translation with ICK
+        shell: bash
+        run: |
+          set -euxo pipefail
+          gdc=$(find "$GITHUB_WORKSPACE/ick-stage/bin" -maxdepth 1 -type f \
+            \( -name gdc -o -name '*-gdc' \) | head -n 1)
+          test -n "$gdc"
+          ICK_GDC="$gdc" \
+          ICK_GDC_SOURCE_SHA=72b28ef09d2f4bcddf0718bb43d45a231878f5dc \
+            sh tools/build.sh
+
+      - name: Smoke-test the full program path
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ./build/sprott-d code EMMMMMMMMMMMM --iterations 1001 --output smoke
+          test -s smoke/sprott-0001-EMMMMMMMMMMMM.ppm
+          test -s smoke/sprott-0001-EMMMMMMMMMMMM.txt

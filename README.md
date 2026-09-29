@@ -50,3 +50,11 @@ For every external source:
 4. **Published mathematics:** independently implement equations, algorithms, parameter sets, and mathematical ideas. Cite the original source rather than copying its program text.
 
 This policy intentionally errs toward links when provenance or licensing is uncertain. A later source can be mirrored once its license has been verified.
+
+## D whole-program translation
+
+Branch `D` contains a whole-program D implementation of the final BASIC program `PROG28.BAS` from Sprott's *Strange Attractors* book disk. It includes the polynomial maps and ODEs, special systems, search tests, projections, 3-D/4-D display modes, sound-event generation, dictionary evaluation, and coordinate-data saving.
+
+The branch does not copy the BASIC source into the repository. `docs/D-translation.md` records provenance, the noncommercial redistribution notice on Sprott's book-disk page, the host adaptations, and the exact ICK/GDC build boundary.
+
+Builds pin `dilapidated-shed/ick@72b28ef09d2f4bcddf0718bb43d45a231878f5dc` and use its GDC + druntime + Phobos stack. `tools/build.sh` rejects an unpinned compiler provenance value.
