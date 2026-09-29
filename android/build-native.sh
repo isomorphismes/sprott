@@ -8,15 +8,58 @@ abi=${ANDROID_ABI:-armeabi-v7a}
 api=${ANDROID_API:-21}
 
 case "$abi" in
-    armeabi-v7a) target=armv7a-linux-androideabi ;;
-    arm64-v8a) target=aarch64-linux-android ;;
-    x86) target=i686-linux-android ;;
-    x86_64) target=x86_64-linux-android ;;
+    armeabi-v7a)
+        ndk_target=armv7a-linux-androideabi
+        ick_target=arm-linux-gnueabi
+        ick_flags=(-march=armv7-a -mthumb -mfpu=neon -mfloat-abi=softfp)
+        ;;
+    arm64-v8a)
+        ndk_target=aarch64-linux-android
+        ick_target=aarch64-linux-gnu
+        ick_flags=(-ffixed-x18)
+        ;;
+    x86)
+        ndk_target=i686-linux-android
+        ick_target=i686-linux-gnu
+        ick_flags=(
+            -march=i686
+            -mssse3
+            -mno-sse4
+            -mno-sse4.1
+            -mno-sse4.2
+            -mno-avx
+            -mno-movbe
+            -mfpmath=sse
+            -mstackrealign
+            -mpreferred-stack-boundary=4
+            -mincoming-stack-boundary=4
+        )
+        ;;
+    x86_64)
+        ndk_target=x86_64-linux-android
+        ick_target=x86_64-linux-gnu
+        ick_flags=(-march=x86-64-v2 -mno-avx -mno-movbe)
+        ;;
     *)
         printf 'unsupported Android ABI: %s\n' "$abi" >&2
         exit 1
         ;;
 esac
+
+ick=${ICK_CC:-}
+if [[ -z $ick && -n ${ICK_ROOT:-} ]]; then
+    ick="$ICK_ROOT/bin/${ick_target}-gcc"
+fi
+[[ -n $ick && -x $ick ]] || {
+    printf 'ICK compiler is required. Set ICK_CC or ICK_ROOT for %s.\n' "$ick_target" >&2
+    exit 1
+}
+
+actual_ick_target=$("$ick" -dumpmachine)
+[[ $actual_ick_target == "$ick_target" ]] || {
+    printf 'wrong ICK target: expected %s got %s\n' "$ick_target" "$actual_ick_target" >&2
+    exit 1
+}
 
 ndk=${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}
 if [[ -z $ndk ]]; then
@@ -50,19 +93,73 @@ toolchain=$(
     exit 1
 }
 
-clang="$toolchain/bin/${target}${api}-clang"
+clang="$toolchain/bin/${ndk_target}${api}-clang"
 readelf="$toolchain/bin/llvm-readelf"
+nm="$toolchain/bin/llvm-nm"
 glue_dir="$ndk/sources/android/native_app_glue"
 glue_source="$glue_dir/android_native_app_glue.c"
 
-for required in "$clang" "$readelf" "$glue_source"; do
+for required in "$clang" "$readelf" "$nm" "$glue_source"; do
     [[ -e $required ]] || {
         printf 'missing Android build input: %s\n' "$required" >&2
         exit 1
     }
 done
 
-mkdir -p "$(dirname -- "$output")"
+work="$repo_root/build/android/obj-$abi"
+rm -rf "$work"
+mkdir -p "$work" "$(dirname -- "$output")"
+
+core_object="$work/sprott_system.ick.o"
+
+"$ick" \
+    "${ick_flags[@]}" \
+    -std=c11 \
+    -O2 \
+    -fPIC \
+    -ffreestanding \
+    -nostdinc \
+    -fvisibility=hidden \
+    -I "$repo_root/src" \
+    -c "$repo_root/src/sprott_system.c" \
+    -o "$core_object"
+
+case "$abi" in
+    armeabi-v7a)
+        "$readelf" -A "$core_object" | tee "$work/arm.attributes"
+        grep -q 'Tag_CPU_arch:.*v7' "$work/arm.attributes"
+        grep -q 'Tag_THUMB_ISA_use:.*Thumb-2' "$work/arm.attributes"
+        ;;
+esac
+
+"$nm" -u "$core_object" > "$work/sprott_system.undefined"
+if grep -Eq '__mul(sc|dc|xc)3|__div(sc|dc|xc)3' "$work/sprott_system.undefined"; then
+    echo 'unexpected complex runtime dependency from ICK core' >&2
+    exit 1
+fi
+
+common_c_flags=(
+    -std=c11
+    -O2
+    -fPIC
+    -Wall
+    -Wextra
+    -I "$glue_dir"
+    -I "$repo_root/src"
+    -I "$repo_root/android/native"
+)
+
+"$clang" "${common_c_flags[@]}" \
+    -c "$repo_root/android/native/sprott_android.c" \
+    -o "$work/sprott_android.o"
+
+"$clang" "${common_c_flags[@]}" \
+    -c "$repo_root/android/native/sprott_renderer.c" \
+    -o "$work/sprott_renderer.o"
+
+"$clang" "${common_c_flags[@]}" \
+    -c "$glue_source" \
+    -o "$work/android_native_app_glue.o"
 
 link_alignment=()
 case "$abi" in
@@ -75,20 +172,15 @@ case "$abi" in
 esac
 
 "$clang" \
-    -std=c11 \
-    -O2 \
-    -fPIC \
     -shared \
-    -Wall \
-    -Wextra \
-    -I "$glue_dir" \
-    -I "$repo_root/src" \
-    -I "$repo_root/android/native" \
-    "$repo_root/src/sprott_system.c" \
-    "$repo_root/android/native/sprott_android.c" \
-    "$repo_root/android/native/sprott_renderer.c" \
-    "$glue_source" \
+    "$core_object" \
+    "$work/sprott_android.o" \
+    "$work/sprott_renderer.o" \
+    "$work/android_native_app_glue.o" \
     -Wl,--no-undefined \
+    -Wl,-z,defs \
+    -Wl,-z,text \
+    -Wl,--fatal-warnings \
     -Wl,-soname,libsprott.so \
     "${link_alignment[@]}" \
     -landroid \
@@ -104,4 +196,10 @@ grep -Fq 'android_main' <<<"$symbols"
 
 printf 'native ABI              %s\n' "$abi"
 printf 'native API floor        %s\n' "$api"
+printf 'ICK compiler            %s\n' "$ick"
+printf 'ICK target              %s\n' "$actual_ick_target"
+if [[ $abi == armeabi-v7a ]]; then
+    printf 'ICK instruction set     Thumb-2\n'
+fi
+printf 'Android boundary/link   %s\n' "$clang"
 printf 'native library          %s\n' "$output"
