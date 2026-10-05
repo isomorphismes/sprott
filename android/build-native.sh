@@ -127,8 +127,10 @@ core_object="$work/sprott_system.ick.o"
 case "$abi" in
     armeabi-v7a)
         "$readelf" -A "$core_object" | tee "$work/arm.attributes"
-        grep -q 'Tag_CPU_arch:.*v7' "$work/arm.attributes"
-        grep -q 'Tag_THUMB_ISA_use:.*Thumb-2' "$work/arm.attributes"
+        # GNU readelf prints these attributes on one line, while the NDK's
+        # llvm-readelf prints TagName and Description on separate lines.
+        grep -Eq 'Tag_CPU_arch:.*v7|Description: ARM v7' "$work/arm.attributes"
+        grep -Eq 'Tag_THUMB_ISA_use:.*Thumb-2|Description: Thumb-2' "$work/arm.attributes"
         ;;
 esac
 
