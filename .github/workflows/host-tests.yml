@@ -1,0 +1,105 @@
+name: host tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  sprott-system:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and run system tests
+        run: bash tests/run.sh
+
+  android-native-ick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - abi: armeabi-v7a
+            gnu_target: arm-linux-gnueabi
+            binutils_package: binutils-arm-linux-gnueabi
+            binutils_prefix: arm-linux-gnueabi
+          - abi: arm64-v8a
+            gnu_target: aarch64-linux-gnu
+            binutils_package: binutils-aarch64-linux-gnu
+            binutils_prefix: aarch64-linux-gnu
+          - abi: x86_64
+            gnu_target: x86_64-linux-gnu
+            binutils_package: binutils-x86-64-linux-gnu
+            binutils_prefix: x86_64-linux-gnu
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out pinned ICK source
+        uses: actions/checkout@v4
+        with:
+          repository: dilapidated-shed/ick
+          ref: 9f5c10a7c97ce297568190a48aaac77f450e838e
+          path: _ick
+          submodules: true
+
+      - name: Materialize pinned ICK source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          . _ick/ick/SOURCE.lock
+          test "$(git -C _ick/gcc rev-parse HEAD)" = "$gcc_commit"
+          (
+            cd _ick
+            sh ick/materialize.sh gcc source
+          )
+
+      - name: Install ICK build tools
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential flex bison texinfo \
+            libgmp-dev libmpfr-dev libmpc-dev libisl-dev libzstd-dev \
+            "${{ matrix.binutils_package }}"
+
+      - name: Build ICK for ${{ matrix.abi }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          target_as="$(command -v "${{ matrix.binutils_prefix }}-as")"
+          target_ld="$(command -v "${{ matrix.binutils_prefix }}-ld")"
+          mkdir _ick-build _ick-stage
+          (
+            cd _ick-build
+            ../_ick/source/configure \
+              --target="${{ matrix.gnu_target }}" \
+              --prefix="$GITHUB_WORKSPACE/_ick-stage" \
+              --with-as="$target_as" \
+              --with-ld="$target_ld" \
+              --enable-languages=c \
+              --disable-bootstrap \
+              --disable-multilib \
+              --disable-nls \
+              --disable-shared \
+              --disable-threads \
+              --without-headers \
+              --disable-libatomic \
+              --disable-libgomp \
+              --disable-libquadmath \
+              --disable-libssp \
+              --disable-libvtv
+          )
+          make -C _ick-build -j2 all-gcc
+          make -C _ick-build install-gcc
+          ick="$GITHUB_WORKSPACE/_ick-stage/bin/${{ matrix.gnu_target }}-gcc"
+          test "$("$ick" -dumpmachine)" = "${{ matrix.gnu_target }}"
+          test -x "$("$ick" -print-prog-name=cc1)"
+
+      - name: Compile Sprott core with ICK and link Android library
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ICK_CC="$GITHUB_WORKSPACE/_ick-stage/bin/${{ matrix.gnu_target }}-gcc" \
+          ANDROID_ABI="${{ matrix.abi }}" \
+            bash android/build-native.sh
