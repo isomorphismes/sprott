@@ -6,11 +6,35 @@ on:
 
 jobs:
   sprott-system:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
-      - name: Compile and run system tests
-        run: bash tests/run.sh
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: isomorphisms/ai-ci/ick-host@ec45ac1d3acd1bcacd1fe6fb271df48e2c22f9b8
+        id: ick
+      - name: Compile and execute the numerical core with ICK
+        run: make test ICK="${{ steps.ick.outputs.compiler }}" ICK_LINK_FLAGS="${{ steps.ick.outputs.link_flags }}"
+      - name: Check out pinned owned-source guard
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: isomorphisms/ai-ci
+          ref: ec45ac1d3acd1bcacd1fe6fb271df48e2c22f9b8
+          path: .aici
+          sparse-checkout: |
+            c-source
+            src/aici.c
+            contracts/build-toolchain-v0.contract.tsv
+          persist-credentials: false
+      - name: Compile and enforce the stage toolchain contract
+        run: |
+          "${{ steps.ick.outputs.compiler }}" ${{ steps.ick.outputs.link_flags }} -std=c17 -O2 -Wall -Wextra -Werror .aici/src/aici.c -o "$RUNNER_TEMP/aici-icky"
+          "$RUNNER_TEMP/aici-icky" verify .aici/contracts/build-toolchain-v0.contract.tsv .
+      - name: Reject ordinary assignments in the converted core and tests
+        run: make -f .aici/c-source/Makefile check ICK="${{ steps.ick.outputs.compiler }}" ICK_LINK_FLAGS="${{ steps.ick.outputs.link_flags }}" FILES="src/sprott_system.c tests/test_sprott_system.c tests/functorial_equivalence.c"
+
 
   android-native-ick:
     runs-on: ubuntu-latest
@@ -33,13 +57,16 @@ jobs:
             binutils_prefix: x86_64-linux-gnu
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
 
       - name: Check out pinned ICK source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: dilapidated-shed/ick
-          ref: 9f5c10a7c97ce297568190a48aaac77f450e838e
+          ref: c5d28dde9cc333a562b907785d0370b725146cdf
           path: _ick
           submodules: true
 

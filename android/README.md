@@ -12,7 +12,7 @@ inspected at `isomorphismes/pauli` main
 `c1e8a687951d8fbcba2003dccbf5b43c3a7461e3`.
 
 The numerical core uses ICK. The Android boundary follows ICK main at
-`dilapidated-shed/ick@9f5c10a7c97ce297568190a48aaac77f450e838e`,
+`dilapidated-shed/ick@c5d28dde9cc333a562b907785d0370b725146cdf`,
 whose Android qualification explicitly uses ICK for header-free leaf objects
 and Android NDK Clang/lld for the platform-facing objects and final link.
 
@@ -67,10 +67,10 @@ Android link. This is the phone lane.
 
 ## Build
 
-Run the ordinary host semantic test first:
+Run the ICK host semantic and frozen-reference checks first:
 
-```sh
-bash tests/run.sh
+```text
+make test ICK=/path/to/native/ick
 ```
 
 Supply a built ICK compiler for the selected ABI. For ARMv7:
