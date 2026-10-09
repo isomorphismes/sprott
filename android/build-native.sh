@@ -168,7 +168,7 @@ builtin_include=$("$ick" -print-file-name=include)
     --sysroot="$toolchain/sysroot" \
     -isystem "$toolchain/sysroot/usr/include" \
     -isystem "$toolchain/sysroot/usr/include/$header_target" \
-    -D__ANDROID__ -D__ANDROID_API__="$api" \
+    -D__ANDROID__ -D__ANDROID_API__="$api" -D__ANDROID_MIN_SDK_VERSION__="$api" \
     -DBIONIC_IOCTL_NO_SIGNEDNESS_OVERLOAD \
     -S "$repo_root/android/native/sprott_android.c" \
     -o "$work/sprott_android.s"
@@ -178,7 +178,7 @@ builtin_include=$("$ick" -print-file-name=include)
     --sysroot="$toolchain/sysroot" \
     -isystem "$toolchain/sysroot/usr/include" \
     -isystem "$toolchain/sysroot/usr/include/$header_target" \
-    -D__ANDROID__ -D__ANDROID_API__="$api" \
+    -D__ANDROID__ -D__ANDROID_API__="$api" -D__ANDROID_MIN_SDK_VERSION__="$api" \
     -DBIONIC_IOCTL_NO_SIGNEDNESS_OVERLOAD \
     -S "$repo_root/android/native/sprott_renderer.c" \
     -o "$work/sprott_renderer.s"
