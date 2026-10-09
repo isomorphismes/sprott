@@ -11,16 +11,19 @@ case "$abi" in
     armeabi-v7a)
         ndk_target=armv7a-linux-androideabi
         ick_target=arm-linux-gnueabi
+        header_target=arm-linux-androideabi
         ick_flags=(-march=armv7-a -mthumb -mfpu=neon -mfloat-abi=softfp)
         ;;
     arm64-v8a)
         ndk_target=aarch64-linux-android
         ick_target=aarch64-linux-gnu
+        header_target=aarch64-linux-android
         ick_flags=(-ffixed-x18)
         ;;
     x86)
         ndk_target=i686-linux-android
         ick_target=i686-linux-gnu
+        header_target=i686-linux-android
         ick_flags=(
             -march=i686
             -mssse3
@@ -38,6 +41,7 @@ case "$abi" in
     x86_64)
         ndk_target=x86_64-linux-android
         ick_target=x86_64-linux-gnu
+        header_target=x86_64-linux-android
         ick_flags=(-march=x86-64-v2 -mno-avx -mno-movbe)
         ;;
     *)
@@ -121,8 +125,10 @@ core_object="$work/sprott_system.ick.o"
     -nostdinc \
     -fvisibility=hidden \
     -I "$repo_root/src" \
-    -c "$repo_root/src/sprott_system.c" \
-    -o "$core_object"
+    -S "$repo_root/src/sprott_system.c" \
+    -o "$work/sprott_system.s"
+
+"$clang" "${ick_flags[@]}" -c "$work/sprott_system.s" -o "$core_object"
 
 case "$abi" in
     armeabi-v7a)
@@ -151,12 +157,28 @@ common_c_flags=(
     -I "$repo_root/android/native"
 )
 
-"$clang" "${common_c_flags[@]}" \
-    -c "$repo_root/android/native/sprott_android.c" \
+"$ick" "${ick_flags[@]}" "${common_c_flags[@]}" \
+    --sysroot="$toolchain/sysroot" \
+    -isystem "$toolchain/sysroot/usr/include" \
+    -isystem "$toolchain/sysroot/usr/include/$header_target" \
+    -D__ANDROID__ -D__ANDROID_API__="$api" \
+    -DBIONIC_IOCTL_NO_SIGNEDNESS_OVERLOAD \
+    -S "$repo_root/android/native/sprott_android.c" \
+    -o "$work/sprott_android.s"
+
+"$ick" "${ick_flags[@]}" "${common_c_flags[@]}" \
+    --sysroot="$toolchain/sysroot" \
+    -isystem "$toolchain/sysroot/usr/include" \
+    -isystem "$toolchain/sysroot/usr/include/$header_target" \
+    -D__ANDROID__ -D__ANDROID_API__="$api" \
+    -DBIONIC_IOCTL_NO_SIGNEDNESS_OVERLOAD \
+    -S "$repo_root/android/native/sprott_renderer.c" \
+    -o "$work/sprott_renderer.s"
+
+"$clang" "${ick_flags[@]}" -c "$work/sprott_android.s" \
     -o "$work/sprott_android.o"
 
-"$clang" "${common_c_flags[@]}" \
-    -c "$repo_root/android/native/sprott_renderer.c" \
+"$clang" "${ick_flags[@]}" -c "$work/sprott_renderer.s" \
     -o "$work/sprott_renderer.o"
 
 "$clang" "${common_c_flags[@]}" \
@@ -203,5 +225,6 @@ printf 'ICK target              %s\n' "$actual_ick_target"
 if [[ $abi == armeabi-v7a ]]; then
     printf 'ICK instruction set     Thumb-2\n'
 fi
-printf 'Android boundary/link   %s\n' "$clang"
+printf 'Owned C frontend        ICK\n'
+printf 'NDK glue/assembly/link  %s\n' "$clang"
 printf 'native library          %s\n' "$output"

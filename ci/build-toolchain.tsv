@@ -1,4 +1,5 @@
 build_id	target	toolchain	ick_revision	ick_status	ick_evidence
 host-core-and-tests	linux-x86_64	ick	c61e448251744a2f40ad743ebef1a027bdcd2f9d	qualified	docs/functorial-icky-c.md
 android-numerical-core	armeabi-v7a,arm64-v8a,x86_64	ick	c61e448251744a2f40ad743ebef1a027bdcd2f9d	qualified	docs/functorial-icky-c.md
-android-platform-and-link	armeabi-v7a,arm64-v8a,x86_64	ndk	c61e448251744a2f40ad743ebef1a027bdcd2f9d	gap:Sprott lifecycle renderer and final Android link have no current ICK qualification	android/README.md
+android-lifecycle-and-renderer	armeabi-v7a,arm64-v8a,x86_64	ick	c61e448251744a2f40ad743ebef1a027bdcd2f9d	qualified	android/README.md
+android-glue-assembly-link	armeabi-v7a,arm64-v8a,x86_64	ndk	c61e448251744a2f40ad743ebef1a027bdcd2f9d	gap:standalone Android assembler linker and unmodified NDK-owned platform glue	android/README.md

@@ -11,10 +11,11 @@ The NativeActivity shell follows the already-working Pauli consumer shape,
 inspected at `isomorphismes/pauli` main
 `c1e8a687951d8fbcba2003dccbf5b43c3a7461e3`.
 
-The numerical core uses ICK. The Android boundary follows ICK main at
-`dilapidated-shed/ick@c5d28dde9cc333a562b907785d0370b725146cdf`,
-whose Android qualification explicitly uses ICK for header-free leaf objects
-and Android NDK Clang/lld for the platform-facing objects and final link.
+The numerical core, lifecycle and renderer use ICK. The Android boundary uses
+`dilapidated-shed/ick@c61e448251744a2f40ad743ebef1a027bdcd2f9d`,
+whose Bionic-header qualification supports these owned C translation units.
+Pinned NDK `29.0.14206865` assembles ICK's output and supplies the unchanged
+`native_app_glue` and final Android link.
 
 No Pauli orbital semantics are carried into this repository.
 
@@ -24,7 +25,7 @@ No Pauli orbital semantics are carried into this repository.
 android.app.NativeActivity
         |
         v
-NDK-Clang-compiled Android / EGL / GLES boundary
+ICK-compiled Android / EGL / GLES boundary
         |
         | system id + Float32 scalars/arrays only
         v
@@ -38,13 +39,16 @@ The package has no application `classes.dex` and no Java/Kotlin application
 layer. ICK does not need Android headers or an Android sysroot for the numerical
 core.
 
-NDK Clang remains deliberately limited to:
+The NDK remains deliberately limited to:
 
-- Android and GLES translation units;
 - `android_native_app_glue.c`;
+- assembly emitted by ICK for the three owned C translation units;
 - the final Android shared-library link.
 
-It does not compile `src/sprott_system.c`.
+It does not compile `src/sprott_system.c` or either maintained
+`android/native/*.c` source. All five binary divisions in camera aspect,
+rendering scale and touch deltas use literal `÷`; compound `/=` retains its
+supported spelling. ICK gives binary `÷` the same semantics as `/`.
 
 ## ARMv7 / MIRO A1 lane
 
@@ -84,9 +88,18 @@ bash android/build-native.sh
 Alternatively point `ICK_ROOT` at an ICK installation whose `bin/` contains
 the matching target compiler.
 
-CI builds ICK from the pinned source revision before building Sprott, so the
-Android acceptance lane cannot silently fall back to stock GCC or NDK Clang for
-the numerical core.
+CI builds and qualifies ICK from the pinned source revision through the shared
+`ai-ci/ick-android` producer before building Sprott for each of its three
+maintained ABIs. Every owned C translation unit goes through ICK; a failure
+cannot silently fall back to NDK Clang. The existing API21 floor and original
+optimization, warnings and ARMv7 Thumb-2/NEON flags are retained. This direct
+build has no CMake-injected Fortify flag or Fortify adapter.
+
+Local exact-source evidence: the actual NDK r29/API21 ARMv7 and AArch64 builds
+compile all three owned C units, assemble and link the full `libsprott.so`;
+ARMv7/Thumb-2 attributes and required NativeActivity symbols pass. Hosted
+checks separately exercise all three declared ABIs. A linked library does not
+claim APK packaging or physical-device execution.
 
 APK packaging follows the application-owned, fail-closed signing pattern used
 by Pauli. Supply:
