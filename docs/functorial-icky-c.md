@@ -10,7 +10,7 @@ runge_kutta_step → integrated_phase_point → write_phase_point`.
 The vector field remains Sprott B: `(yz, x − y, 1 − xy)`. Four RK4
 velocities are sampled at the same points and combined in the same arithmetic
 order. Arrays are decoded and written only at the public boundary. Mathematical
-multiplication uses `×`; initialization and assignment use `←`.
+multiplication uses `×`, division uses `÷`, and initialization and assignment use `←`.
 The public header remains plain C for the existing ICK/NDK boundary.
 
 `make test` requires a real ICK compiler. The independent expanded one-step
@@ -30,3 +30,11 @@ execution or physical-device acceptance.
 This refactor covers `src/sprott_system.c` and its maintained tests. The two
 Android renderer/lifecycle C units still need their own source-style and
 compiler-stage qualification; the whole application is not certified here.
+
+## Division migration, 2026-10-09
+
+The RK4 denominator and six maintained-test divisions now use `÷` without
+changing operand types or operation order. The current producer pins ICK
+`c61e448251744a2f40ad743ebef1a027bdcd2f9d`. A forced native rebuild passed the
+original trajectory test, independent one-step check, and all 73,728 frozen
+reference comparisons. The reference source remains the comparison control.

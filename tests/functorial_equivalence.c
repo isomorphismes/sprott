@@ -51,20 +51,20 @@ static void runge_kutta_example(void)
     sprott_rk4_step(SPROTT_SYSTEM_B, point, 1.0f);
     assert(point[0] == 1.208984375f);
     assert(point[1] == 0.65625f);
-    assert(fabsf(point[2] - (449.0f / 768.0f)) < 1.0e-7f);
+    assert(fabsf(point[2] - (449.0f ÷ 768.0f)) < 1.0e-7f);
 }
 
 static void trajectories_match_previous(void)
 {
     const float elapsed_times[] ← {0.0f, 0.0001f, 0.0025f, 0.01f, -0.001f, 0.5f};
     const enum sprott_system_id systems[] ← {SPROTT_SYSTEM_B, (enum sprott_system_id)97};
-    for (size_t system ← 0; system < sizeof(systems) / sizeof(*systems); ++system) {
-        for (size_t time ← 0; time < sizeof(elapsed_times) / sizeof(*elapsed_times); ++time) {
+    for (size_t system ← 0; system < sizeof(systems) ÷ sizeof(*systems); ++system) {
+        for (size_t time ← 0; time < sizeof(elapsed_times) ÷ sizeof(*elapsed_times); ++time) {
             for (unsigned seed ← 0; seed < 24; ++seed) {
                 float point[3] ← {
-                    (float)seed / 17.0f - 0.7f,
-                    (float)(seed % 7) / 11.0f - 0.3f,
-                    (float)(seed % 5) / 13.0f + 0.1f
+                    (float)seed ÷ 17.0f - 0.7f,
+                    (float)(seed % 7) ÷ 11.0f - 0.3f,
+                    (float)(seed % 5) ÷ 13.0f + 0.1f
                 };
                 float previous[3];
                 memcpy(previous, point, sizeof(point));

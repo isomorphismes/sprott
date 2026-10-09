@@ -13,7 +13,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - uses: isomorphisms/ai-ci/ick-host@ec45ac1d3acd1bcacd1fe6fb271df48e2c22f9b8
+      - uses: isomorphisms/ai-ci/ick-host@ba3ff90023b09e525313793554edecf2141ff95b
         id: ick
       - name: Compile and execute the numerical core with ICK
         run: make test ICK="${{ steps.ick.outputs.compiler }}" ICK_LINK_FLAGS="${{ steps.ick.outputs.link_flags }}"
@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: isomorphisms/ai-ci
-          ref: ec45ac1d3acd1bcacd1fe6fb271df48e2c22f9b8
+          ref: ba3ff90023b09e525313793554edecf2141ff95b
           path: .aici
           sparse-checkout: |
             c-source
@@ -66,7 +66,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: dilapidated-shed/ick
-          ref: c5d28dde9cc333a562b907785d0370b725146cdf
+          ref: c61e448251744a2f40ad743ebef1a027bdcd2f9d
           path: _ick
           submodules: true
 

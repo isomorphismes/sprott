@@ -79,7 +79,7 @@ static float runge_kutta_coordinate(
 ) {
     return initial_coordinate + elapsed_time ×
         (first_velocity + 2.0f × second_velocity +
-         2.0f × third_velocity + fourth_velocity) / 6.0f;
+         2.0f × third_velocity + fourth_velocity) ÷ 6.0f;
 }
 
 static struct phase_point integrated_phase_point(
