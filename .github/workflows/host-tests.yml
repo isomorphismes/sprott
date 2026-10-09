@@ -54,7 +54,7 @@ jobs:
       - name: Install the pinned Android NDK
         run: sdkmanager "ndk;29.0.14206865"
       - name: Build and qualify ICK for Android
-        uses: isomorphisms/ai-ci/ick-android@afabdf042609b59c949ab1eb06feeb380bdbe409
+        uses: isomorphisms/ai-ci/ick-android@f5f2439aa40c0376ec16097ab7bb8360b3d74d5e
         id: ick
         with:
           abi: ${{ matrix.abi }}

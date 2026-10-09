@@ -157,7 +157,14 @@ common_c_flags=(
     -I "$repo_root/android/native"
 )
 
+builtin_include=$("$ick" -print-file-name=include)
+[[ -d $builtin_include ]] || {
+    printf 'ICK builtin headers are missing: %s\n' "$builtin_include" >&2
+    exit 1
+}
+
 "$ick" "${ick_flags[@]}" "${common_c_flags[@]}" \
+    -nostdinc -isystem "$builtin_include" \
     --sysroot="$toolchain/sysroot" \
     -isystem "$toolchain/sysroot/usr/include" \
     -isystem "$toolchain/sysroot/usr/include/$header_target" \
@@ -167,6 +174,7 @@ common_c_flags=(
     -o "$work/sprott_android.s"
 
 "$ick" "${ick_flags[@]}" "${common_c_flags[@]}" \
+    -nostdinc -isystem "$builtin_include" \
     --sysroot="$toolchain/sysroot" \
     -isystem "$toolchain/sysroot/usr/include" \
     -isystem "$toolchain/sysroot/usr/include/$header_target" \
