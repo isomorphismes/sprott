@@ -27,6 +27,11 @@ compiles the Android/GLES boundary and performs the final Android link. The
 
 See `docs/sprott-b.md` and `android/README.md`.
 
+The numerical core now composes phase-point and phase-velocity transformations
+in Icky C. Use `make test ICK=/path/to/ick` for the required host acceptance;
+see `docs/functorial-icky-c.md` for compiler/runtime boundaries, independent
+RK4 evidence, and source that still needs review.
+
 ## Primary sources
 
 ### J. C. Sprott

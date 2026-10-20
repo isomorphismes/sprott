@@ -277,8 +277,8 @@ static int32_t sprott_handle_input(
                 : 1;
 
         const float short_side = (float)short_side_pixels;
-        const float delta_x = (x - state->previous_x) / short_side;
-        const float delta_y = (y - state->previous_y) / short_side;
+        const float delta_x = (x - state->previous_x) ÷ short_side;
+        const float delta_y = (y - state->previous_y) ÷ short_side;
 
         if (fabsf(delta_x) + fabsf(delta_y) > 0.001f) {
             state->moved = true;

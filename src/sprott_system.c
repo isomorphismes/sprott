@@ -1,48 +1,139 @@
 #include "sprott_system.h"
 
-static void case_b_derivative(
-    const float state[static SPROTT_STATE_DIMENSION],
-    float velocity[static SPROTT_STATE_DIMENSION]
-) {
-    const float x = state[0];
-    const float y = state[1];
-    const float z = state[2];
+/* Array layout belongs to the public ABI, not to the integration steps. */
+struct phase_point {
+    float x_coordinate;
+    float y_coordinate;
+    float z_coordinate;
+};
 
-    velocity[0] = y * z;
-    velocity[1] = x - y;
-    velocity[2] = 1.0f - x * y;
+struct phase_velocity {
+    float x_velocity;
+    float y_velocity;
+    float z_velocity;
+};
+
+static struct phase_point phase_point_from_state(
+    const float state[static SPROTT_STATE_DIMENSION]
+) {
+    return (struct phase_point){state[0], state[1], state[2]};
+}
+
+static void write_phase_point(
+    float state[static SPROTT_STATE_DIMENSION],
+    struct phase_point point
+) {
+    state[0] ← point.x_coordinate;
+    state[1] ← point.y_coordinate;
+    state[2] ← point.z_coordinate;
+}
+
+static void write_phase_velocity(
+    float velocity[static SPROTT_STATE_DIMENSION],
+    struct phase_velocity derivative
+) {
+    velocity[0] ← derivative.x_velocity;
+    velocity[1] ← derivative.y_velocity;
+    velocity[2] ← derivative.z_velocity;
+}
+
+static struct phase_velocity case_b_velocity(struct phase_point point) {
+    return (struct phase_velocity){
+        point.y_coordinate × point.z_coordinate,
+        point.x_coordinate - point.y_coordinate,
+        1.0f - point.x_coordinate × point.y_coordinate
+    };
+}
+
+static struct phase_velocity velocity_at(
+    enum sprott_system_id system,
+    struct phase_point point
+) {
+    switch (system) {
+        case SPROTT_SYSTEM_B:
+            return case_b_velocity(point);
+        default:
+            return (struct phase_velocity){0.0f, 0.0f, 0.0f};
+    }
+}
+
+static struct phase_point displaced_phase_point(
+    struct phase_point initial_point,
+    struct phase_velocity velocity,
+    float elapsed_time
+) {
+    return (struct phase_point){
+        initial_point.x_coordinate + elapsed_time × velocity.x_velocity,
+        initial_point.y_coordinate + elapsed_time × velocity.y_velocity,
+        initial_point.z_coordinate + elapsed_time × velocity.z_velocity
+    };
+}
+
+static float runge_kutta_coordinate(
+    float initial_coordinate,
+    float first_velocity,
+    float second_velocity,
+    float third_velocity,
+    float fourth_velocity,
+    float elapsed_time
+) {
+    return initial_coordinate + elapsed_time ×
+        (first_velocity + 2.0f × second_velocity +
+         2.0f × third_velocity + fourth_velocity) ÷ 6.0f;
+}
+
+static struct phase_point integrated_phase_point(
+    struct phase_point initial_point,
+    struct phase_velocity first_velocity,
+    struct phase_velocity second_velocity,
+    struct phase_velocity third_velocity,
+    struct phase_velocity fourth_velocity,
+    float elapsed_time
+) {
+    return (struct phase_point){
+        runge_kutta_coordinate(initial_point.x_coordinate,
+            first_velocity.x_velocity, second_velocity.x_velocity,
+            third_velocity.x_velocity, fourth_velocity.x_velocity, elapsed_time),
+        runge_kutta_coordinate(initial_point.y_coordinate,
+            first_velocity.y_velocity, second_velocity.y_velocity,
+            third_velocity.y_velocity, fourth_velocity.y_velocity, elapsed_time),
+        runge_kutta_coordinate(initial_point.z_coordinate,
+            first_velocity.z_velocity, second_velocity.z_velocity,
+            third_velocity.z_velocity, fourth_velocity.z_velocity, elapsed_time)
+    };
+}
+
+static struct phase_point runge_kutta_step(
+    enum sprott_system_id system,
+    struct phase_point initial_point,
+    float elapsed_time
+) {
+    const struct phase_velocity first_velocity ← velocity_at(system, initial_point);
+    const struct phase_velocity second_velocity ← velocity_at(system,
+        displaced_phase_point(initial_point, first_velocity, 0.5f × elapsed_time));
+    const struct phase_velocity third_velocity ← velocity_at(system,
+        displaced_phase_point(initial_point, second_velocity, 0.5f × elapsed_time));
+    const struct phase_velocity fourth_velocity ← velocity_at(system,
+        displaced_phase_point(initial_point, third_velocity, elapsed_time));
+
+    return integrated_phase_point(initial_point, first_velocity,
+        second_velocity, third_velocity, fourth_velocity, elapsed_time);
 }
 
 unsigned int sprott_parameter_count(enum sprott_system_id system) {
-    switch (system) {
-        case SPROTT_SYSTEM_B:
-            return 0;
-        default:
-            return 0;
-    }
+    (void)system;
+    return 0;
 }
 
 void sprott_reset(
     enum sprott_system_id system,
     float state[static SPROTT_STATE_DIMENSION]
 ) {
-    switch (system) {
-        case SPROTT_SYSTEM_B:
-            /*
-             * Application-owned seed. The published system supplies the
-             * vector field; this seed is not claimed as a published value.
-             */
-            state[0] = 0.1f;
-            state[1] = 0.1f;
-            state[2] = 0.1f;
-            return;
-
-        default:
-            state[0] = 0.0f;
-            state[1] = 0.0f;
-            state[2] = 0.0f;
-            return;
-    }
+    /* The seed is application-owned, not a claim about the published system. */
+    const struct phase_point seed ← system == SPROTT_SYSTEM_B
+        ? (struct phase_point){0.1f, 0.1f, 0.1f}
+        : (struct phase_point){0.0f, 0.0f, 0.0f};
+    write_phase_point(state, seed);
 }
 
 void sprott_derivative(
@@ -50,28 +141,7 @@ void sprott_derivative(
     const float state[static SPROTT_STATE_DIMENSION],
     float velocity[static SPROTT_STATE_DIMENSION]
 ) {
-    switch (system) {
-        case SPROTT_SYSTEM_B:
-            case_b_derivative(state, velocity);
-            return;
-
-        default:
-            velocity[0] = 0.0f;
-            velocity[1] = 0.0f;
-            velocity[2] = 0.0f;
-            return;
-    }
-}
-
-static void add_scaled(
-    float out[static SPROTT_STATE_DIMENSION],
-    const float a[static SPROTT_STATE_DIMENSION],
-    const float b[static SPROTT_STATE_DIMENSION],
-    float scale
-) {
-    out[0] = a[0] + scale * b[0];
-    out[1] = a[1] + scale * b[1];
-    out[2] = a[2] + scale * b[2];
+    write_phase_velocity(velocity, velocity_at(system, phase_point_from_state(state)));
 }
 
 void sprott_rk4_step(
@@ -79,24 +149,5 @@ void sprott_rk4_step(
     float state[static SPROTT_STATE_DIMENSION],
     float dt
 ) {
-    float k1[SPROTT_STATE_DIMENSION];
-    float k2[SPROTT_STATE_DIMENSION];
-    float k3[SPROTT_STATE_DIMENSION];
-    float k4[SPROTT_STATE_DIMENSION];
-    float sample[SPROTT_STATE_DIMENSION];
-
-    sprott_derivative(system, state, k1);
-
-    add_scaled(sample, state, k1, 0.5f * dt);
-    sprott_derivative(system, sample, k2);
-
-    add_scaled(sample, state, k2, 0.5f * dt);
-    sprott_derivative(system, sample, k3);
-
-    add_scaled(sample, state, k3, dt);
-    sprott_derivative(system, sample, k4);
-
-    state[0] += dt * (k1[0] + 2.0f * k2[0] + 2.0f * k3[0] + k4[0]) / 6.0f;
-    state[1] += dt * (k1[1] + 2.0f * k2[1] + 2.0f * k3[1] + k4[1]) / 6.0f;
-    state[2] += dt * (k1[2] + 2.0f * k2[2] + 2.0f * k3[2] + k4[2]) / 6.0f;
+    write_phase_point(state, runge_kutta_step(system, phase_point_from_state(state), dt));
 }

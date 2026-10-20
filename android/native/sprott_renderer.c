@@ -152,10 +152,10 @@ static void project_trail(void) {
     const float sp = sinf(pitch);
 
     const float aspect =
-        current_height > 0 ? (float)current_width / (float)current_height : 1.0f;
+        current_height > 0 ? (float)current_width ÷ (float)current_height : 1.0f;
 
-    float x_scale = 0.90f / trail_radius;
-    float y_scale = 0.90f / trail_radius;
+    float x_scale = 0.90f ÷ trail_radius;
+    float y_scale = 0.90f ÷ trail_radius;
 
     if (aspect > 1.0f) {
         x_scale /= aspect;
