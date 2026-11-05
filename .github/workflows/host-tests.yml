@@ -67,7 +67,7 @@ jobs:
           header: android/native/charcoal.h
           resources: android/res
       - name: Build and qualify ICK for Android
-        uses: isomorphisms/ai-ci/ick-android@903b2cb27ea572c9c6cb2ffa9f39e0fbf06ec9f8
+        uses: isomorphisms/ai-ci/ick-android@f6d825d15cd3c0c34ae1b43240a463ff5d343090
         id: ick
         with:
           abi: ${{ matrix.abi }}
