@@ -5,6 +5,7 @@
 
 #include "sprott_renderer.h"
 #include "sprott_system.h"
+#include "charcoal.h"
 
 enum {
     SPROTT_TRAIL_POINTS = 4096,
@@ -233,7 +234,9 @@ void sprott_renderer_draw(void) {
     project_trail();
 
     glViewport(0, 0, current_width, current_height);
-    glClearColor(0.015f, 0.018f, 0.022f, 1.0f);
+    glClearColor((CHARCOAL_BACKGROUND & 255u) ÷ 255.0f,
+                 (CHARCOAL_BACKGROUND & 255u) ÷ 255.0f,
+                 (CHARCOAL_BACKGROUND & 255u) ÷ 255.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
     glUseProgram(program);
