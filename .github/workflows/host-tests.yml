@@ -62,7 +62,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Check shared copies and acquire canonical Grease
-        uses: isomorphisms/ai-ci/.github/actions/charcoal-vendor@876a843dd7c5c635adaba854a53fd6f2c2139210
+        uses: isomorphisms/ai-ci/.github/actions/charcoal-vendor@ff34c4100bc7063aab245f8088b4abee77df3e3a
         with:
           header: android/native/charcoal.h
           resources: android/res
