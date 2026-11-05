@@ -16,7 +16,7 @@
         android:hasCode="false"
         android:hardwareAccelerated="true"
         android:label="Sprott"
-        android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen">
+        android:theme="@style/Theme.SprottCharcoal">
 
         <activity
             android:name="android.app.NativeActivity"

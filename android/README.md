@@ -12,7 +12,7 @@ inspected at `isomorphismes/pauli` main
 `c1e8a687951d8fbcba2003dccbf5b43c3a7461e3`.
 
 The numerical core, lifecycle and renderer use ICK. The Android boundary uses
-`dilapidated-shed/ick@c61e448251744a2f40ad743ebef1a027bdcd2f9d`,
+`dilapidated-shed/ick@fbe86e23d55cfec2000c08e61deea2a407fd7175`,
 whose Bionic-header qualification supports these owned C translation units.
 Pinned NDK `29.0.14206865` assembles ICK's output and supplies the unchanged
 `native_app_glue` and final Android link.
@@ -137,3 +137,10 @@ A physical-device smoke pass should establish:
 
 An emulator can test lifecycle/input/package behavior but does not substitute
 for physical GPU evidence.
+
+The current Android producer is ai-ci f6d825d15cd3c0c34ae1b43240a463ff5d343090.
+Run41991829910 passed the unchanged host core and ARMv7 lane, but the old
+provider's ARM64/x86 qualification emitted .base64 directives rejected by the
+unchanged r29 assembler. The promoted ICK producer qualifies that assembler
+capability explicitly; NDK29, all three application C units and no-fallback
+ownership remain unchanged. Current consumer compile/resource checks must rerun.
